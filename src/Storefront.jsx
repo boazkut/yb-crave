@@ -11,6 +11,7 @@ import { CheckoutSheet } from './features/Checkout.jsx'
 import { BagBuilder, ComboBuilder } from './features/Builders.jsx'
 import { CartBar, OrderStatus } from './features/OrderStatus.jsx'
 import { navigate } from './lib/router.js'
+import { useSecretAdmin } from './lib/secretAdmin.js'
 
 const STOCK_ORDER = { in: 0, low: 1, out: 2 }
 const sortProducts = (list) =>
@@ -21,6 +22,7 @@ function Home({ byCategory }) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const inputRef = useRef(null)
+  const secret = useSecretAdmin()
   useEffect(() => {
     if (searchOpen) inputRef.current?.focus()
   }, [searchOpen])
@@ -31,9 +33,13 @@ function Home({ byCategory }) {
   return (
     <>
       <header className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 pt-4">
-        <div className="flex items-center gap-3">
-          <Logo light />
-          <StoreStatus pill />
+        <div className="flex select-none items-center gap-3 [-webkit-touch-callout:none]">
+          <span onClick={secret.onLogo}>
+            <Logo light />
+          </span>
+          <span onClick={secret.onStatus}>
+            <StoreStatus pill />
+          </span>
         </div>
         <button
           type="button"
