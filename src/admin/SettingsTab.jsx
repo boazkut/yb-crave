@@ -50,7 +50,7 @@ const startOfWeek = () => {
 }
 
 function Finance() {
-  const orders = useAllOrders()
+  const orders = useAllOrders(0)
   const { settings } = useData()
   const toast = useToast()
   const [period, setPeriod] = useState('today')
@@ -159,6 +159,42 @@ function Finance() {
   )
 }
 
+function MyCode() {
+  const toast = useToast()
+  const [pin, setPin] = useState('')
+  if (!storage.changeAdminSecret) return null
+  return (
+    <Section title="הקוד האישי שלי">
+      <div className="flex gap-2">
+        <input
+          type="password"
+          inputMode="numeric"
+          className="field py-2.5 tracking-[0.3em]"
+          placeholder="קוד חדש (4–8 ספרות)"
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+        />
+        <button
+          type="button"
+          className="btn-secondary shrink-0 px-4 text-sm"
+          disabled={pin.length < 4}
+          onClick={async () => {
+            try {
+              await storage.changeAdminSecret(pin)
+              setPin('')
+              toast('הקוד הוחלף')
+            } catch (e) {
+              toast(e.message || 'ההחלפה נכשלה')
+            }
+          }}
+        >
+          החלפה
+        </button>
+      </div>
+    </Section>
+  )
+}
+
 export function SettingsTab() {
   const { settings, mode } = useData()
   const toast = useToast()
@@ -184,6 +220,11 @@ export function SettingsTab() {
           <Field label="קישור לפתיחת PayBox" dir="ltr" value={settings.payboxLink} onSave={(v) => save({ payboxLink: v })} hint="למשל קישור לקבוצת PayBox שלכם" />
           <Field label="קישור לפתיחת Bit" dir="ltr" value={settings.bitLink} onSave={(v) => save({ bitLink: v })} />
           <Field
+            label="טלפונים לבעיות (מוצגים בתחתית האתר, מופרדים בפסיק)"
+            value={(settings.supportPhones || []).join(', ')}
+            onSave={(v) => save({ supportPhones: v.split(',').map((x) => x.trim()).filter(Boolean) })}
+          />
+          <Field
             label="וואטסאפ לפניות לקוחות"
             dir="ltr"
             value={settings.whatsappNumber}
@@ -194,6 +235,8 @@ export function SettingsTab() {
       </Section>
 
       <Finance />
+
+      <MyCode />
 
       <Section title="תחזוקה">
         <button

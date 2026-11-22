@@ -14,6 +14,8 @@ export const SITE_CONFIG = {
   bitLink: '',
   // וואטסאפ ללקוחות שצריכים עזרה (פורמט בינלאומי, בלי + ובלי 0): 972557757686
   whatsappNumber: '972557757686',
+  // טלפונים לבעיות שמוצגים בתחתית האתר
+  supportPhones: ['055-7757686', '058-5377192'],
 
   // מצב דמו (לפני חיבור Firebase): קוד הכניסה לאזור המנהלים
   demoAdminPin: '2580',
@@ -25,7 +27,7 @@ export const SITE_CONFIG = {
  * VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_APP_ID
  * כל עוד apiKey ריק — האתר רץ במצב דמו (הכל נשמר בטלפון בלבד).
  */
-const env = import.meta.env
+const env = import.meta.env || {}
 export const FIREBASE_CONFIG = {
   apiKey: env.VITE_FIREBASE_API_KEY || '',
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || '',

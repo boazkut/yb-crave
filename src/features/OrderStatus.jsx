@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, ChevronLeft, CircleX, MessageCircle, ShoppingBag } from 'lucide-react'
+import { Bell, BellRing, Check, ChevronLeft, CircleX, MessageCircle, Phone, ShoppingBag } from 'lucide-react'
 import { Sheet } from '../components/Overlays.jsx'
 import { useData } from '../state/DataContext.jsx'
 import { useUI } from '../state/UIContext.jsx'
@@ -8,7 +8,8 @@ import { useCart } from '../state/CartContext.jsx'
 import { useLocal, LS_KEYS } from '../state/useLocal.js'
 import { storage } from '../services/storageService.js'
 import { ACTIVE_STATUSES, ORDER_STATUS, PAYMENT, statusLabel, waLink } from '../lib/shop.js'
-import { ils } from '../lib/utils.js'
+import { ils, vibrate } from '../lib/utils.js'
+import { localNotify, pushSupport, subscribePush } from '../lib/push.js'
 
 export function useOrder(id) {
   const [order, setOrder] = useState(undefined)
@@ -23,9 +24,80 @@ export function useOrder(id) {
 const STEPS = [
   { key: 'awaiting_payment', label: 'ממתין לאישור תשלום', cash: 'ההזמנה התקבלה' },
   { key: 'preparing', label: 'תשלום אושר, מכינים לך', cash: 'מכינים לך' },
-  { key: 'on_the_way', label: 'בדרך לחדר / מוכן' },
+  { key: 'ready', label: 'ההזמנה מוכנה' },
+  { key: 'on_the_way', label: 'בדרך לחדר שלך' },
   { key: 'delivered', label: 'נמסר' },
 ]
+
+/** טלפונים לבעיות — מוצגים בתחתית האתר ובמסך ההזמנה */
+export function SupportPhones({ light = false, className = '' }) {
+  const { settings } = useData()
+  const phones = settings.supportPhones || []
+  if (!phones.length) return null
+  return (
+    <div className={className}>
+      <p className={`mb-2 text-[13px] ${light ? 'text-white/80' : 'text-muted'}`}>בעיה בהזמנה? מתקשרים אלינו</p>
+      <div className="flex flex-wrap gap-2">
+        {phones.map((ph) => (
+          <a
+            key={ph}
+            href={`tel:${ph.replace(/\D/g, '')}`}
+            className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[14px] font-semibold ${light ? 'bg-white/90 text-ink' : 'border border-line bg-white'}`}
+          >
+            <Phone size={15} />
+            <span dir="ltr">{ph}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function NotifyCard({ orderId }) {
+  const ui = useUI()
+  const [state, setState] = useState(() => (typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'maybe' : 'idle'))
+  const [busy, setBusy] = useState(false)
+  if (!storage.saveOrderPush) return null
+  const support = pushSupport()
+  if (support === 'unsupported') return null
+
+  const enable = async () => {
+    setBusy(true)
+    try {
+      const sub = await subscribePush(storage.vapidPublicKey)
+      await storage.saveOrderPush(orderId, sub)
+      setState('on')
+      ui.toast('מעולה. נודיע לך כשההזמנה מוכנה וכשהיא בדרך')
+    } catch (e) {
+      ui.toast(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (state === 'on') {
+    return (
+      <div className="mt-4 flex items-center gap-3 rounded-2xl bg-[#E7F6EC] px-4 py-3 text-[14px] text-[#15803D]">
+        <BellRing size={18} /> התראות פעילות להזמנה הזאת
+      </div>
+    )
+  }
+  return (
+    <div className="mt-4 rounded-2xl border border-line p-4">
+      <p className="font-semibold">רוצים התראה לטלפון?</p>
+      <p className="mt-0.5 text-[13px] text-muted">
+        {support === 'ios-install'
+          ? 'באייפון: לוחצים "שיתוף" ← "הוספה למסך הבית", פותחים מהאייקון ומפעילים כאן.'
+          : 'נשלח לך התראה כשההזמנה מוכנה וכשהיא יוצאת לחדר.'}
+      </p>
+      {support !== 'ios-install' && (
+        <button type="button" onClick={enable} disabled={busy} className="btn-primary mt-3 w-full">
+          <Bell size={17} /> {busy ? 'מפעילים...' : 'הפעלת התראות'}
+        </button>
+      )}
+    </div>
+  )
+}
 
 export function OrderStatus({ orderId, onClose }) {
   const order = useOrder(orderId)
@@ -76,6 +148,8 @@ export function OrderStatus({ orderId, onClose }) {
           </a>
         </div>
       ) : (
+        <>
+        {ACTIVE_STATUSES.includes(order.status) && <NotifyCard orderId={order.id} />}
         <ol className="mt-5 space-y-0">
           {STEPS.map((s, i) => {
             const done = st.step > i || order.status === 'delivered'
@@ -98,6 +172,7 @@ export function OrderStatus({ orderId, onClose }) {
             )
           })}
         </ol>
+        </>
       )}
 
       <div className="mt-5 rounded-2xl border border-line p-4 text-sm">
@@ -129,6 +204,7 @@ export function OrderStatus({ orderId, onClose }) {
         </div>
       </div>
 
+      <SupportPhones className="mt-5" />
       <button type="button" onClick={onClose} className="btn-secondary mt-4 w-full">
         חזרה לחנות
       </button>
@@ -143,6 +219,18 @@ export function ActiveOrderPill() {
   const order = useOrder(latest?.id)
   const ui = useUI()
   const show = order && (ACTIVE_STATUSES.includes(order.status) || order.status === 'rejected')
+  const prev = useRef(null)
+  useEffect(() => {
+    if (!order) return
+    const key = `${order.id}:${order.status}`
+    if (prev.current && prev.current !== key && prev.current.startsWith(order.id)) {
+      const text = statusLabel(order)
+      ui.toast(`הזמנה #${order.number}: ${text}`)
+      vibrate([80, 60, 80])
+      if (document.hidden) localNotify(`הזמנה #${order.number}`, text)
+    }
+    prev.current = key
+  }, [order, ui])
 
   return (
     <AnimatePresence>

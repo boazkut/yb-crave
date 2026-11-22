@@ -1,5 +1,5 @@
 import { SITE_CONFIG } from '../config.js'
-import { DEFAULT_CATEGORIES } from '../data/catalog.js'
+import { DEFAULT_CATEGORIES, REMOVED_CATEGORIES } from '../data/catalog.js'
 
 export const DEFAULT_SETTINGS = {
   storeOpen: true,
@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS = {
   payboxLink: SITE_CONFIG.payboxLink,
   bitLink: SITE_CONFIG.bitLink,
   whatsappNumber: SITE_CONFIG.whatsappNumber,
+  supportPhones: SITE_CONFIG.supportPhones,
   categories: DEFAULT_CATEGORIES,
   costLog: [],
 }
@@ -15,6 +16,10 @@ export const withSettingsDefaults = (s) => {
   const merged = { ...DEFAULT_SETTINGS, ...(s || {}) }
   if (!Array.isArray(merged.categories) || !merged.categories.length) merged.categories = DEFAULT_CATEGORIES
   const known = Object.fromEntries(DEFAULT_CATEGORIES.map((c) => [c.id, c]))
-  merged.categories = merged.categories.map((c) => ({ desc: known[c.id]?.desc || '', ...c }))
+  merged.categories = merged.categories
+    .filter((c) => !REMOVED_CATEGORIES.includes(c.id))
+    .map((c) => (c.id === 'sour' && c.name === 'חמצוצים וגומי' ? { ...c, name: known.sour.name, desc: known.sour.desc } : c))
+    .map((c) => ({ desc: known[c.id]?.desc || '', ...c }))
+  if (!Array.isArray(merged.supportPhones)) merged.supportPhones = SITE_CONFIG.supportPhones
   return merged
 }

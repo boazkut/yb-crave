@@ -6,25 +6,23 @@
  *   shape: bag | tube | bar | box | cookie | strip | gummy | lolly | can | bottle | pouch | supply | mystery | combo
  */
 
-export const CATALOG_VERSION = 6
+export const CATALOG_VERSION = 7
 
 export const DEFAULT_CATEGORIES = [
   { id: 'drinks', name: 'פחיות ושתייה', desc: 'פחיות קרות, אנרגיה, מים ושוקו' },
   { id: 'salty', name: 'חטיפים מלוחים', desc: 'במבה, ביסלי, דוריטוס וכל החבר׳ה' },
   { id: 'sweets', name: 'שוקולדים ומתוקים', desc: 'קינדר, קליק, עוגיות וחטיפי שוקולד' },
-  { id: 'sour', name: 'חמצוצים וגומי', desc: 'פסים, נחשים ושקית שמרכיבים לבד' },
-  { id: 'combos', name: 'קומבואים והפתעות', desc: 'קומבו שיעור כפול ושקיות הפתעה' },
-  { id: 'rescue', name: 'הצלה וציוד', desc: 'עטים, טיפקס, טישו ומטען' },
+  { id: 'sour', name: 'ממתקים וגומי', desc: 'חמצוצים, גומי, סוכריות ושקית שמרכיבים לבד' },
 ]
+
+export const REMOVED_CATEGORIES = ['combos', 'rescue']
 
 /** תמונה, צבע תגית וסרטון רקע לכל קטגוריה (קטגוריות חדשות מקבלות צבע לפי הסדר) */
 export const CATEGORY_LOOK = {
   drinks: { image: '/media/cat-drinks.jpg', tone: 0, video: 'drinks' },
   salty: { image: '/media/cat-salty.jpg', tone: 1, video: 'salty' },
   sweets: { image: '/media/cat-sweets.jpg', tone: 2, video: 'sweets' },
-  sour: { image: '/media/cat-sour.jpg', tone: 3, video: 'sweets' },
-  combos: { image: '/media/cat-combos.jpg', tone: 4, video: 'drinks' },
-  rescue: { image: '', tone: 5, video: 'salty' },
+  sour: { image: '/media/cat-candy.jpg', clip: '/media/cat-candy.mp4', tone: 3, video: 'candy' },
 }
 
 export const TONES = [
@@ -54,8 +52,6 @@ const drink = make('drinks', 'can')
 const salty = make('salty', 'bag')
 const sweet = make('sweets', 'bar')
 const sour = make('sour', 'gummy')
-const combo = make('combos', 'combo')
-const rescue = make('rescue', 'supply')
 
 const RAW = [
   // פחיות ושתייה
@@ -162,40 +158,6 @@ const RAW = [
   sour('gum-bazooka', 'מסטיק בזוקה', 1, { shape: 'bar', c1: '#FF4FA3', c2: '#1D4ED8', label: 'בזוקה' }),
   sour('gum-mast', 'מסטיק מאסט', 7, { shape: 'box', c1: '#2E9E5B', c2: '#F4EAD5', label: 'מאסט' }),
   sour('gum-orbit', 'מסטיק אורביט', 7, { shape: 'box', c1: '#1D4ED8', c2: '#F4EAD5', label: 'אורביט' }),
-
-  // קומבואים ושקיות הפתעה
-  combo('combo-double', 'קומבו שיעור כפול', 15, {
-    c1: '#E5212B', c2: '#F4EAD5', label: 'שיעור כפול',
-    note: 'פחית, חטיף ו-2 חמצוצים לבחירה',
-    comboSlots: [
-      { label: 'פחית', pick: { category: 'drinks', shape: 'can' } },
-      { label: 'חטיף', pick: { category: 'salty' } },
-      { label: 'חמצוץ ראשון', pick: { bag: true } },
-      { label: 'חמצוץ שני', pick: { bag: true } },
-    ],
-  }),
-  combo('combo-sweet', 'קומבו מתוק', 14, {
-    c1: '#D9A23B', c2: '#1C1A17', label: 'מתוק',
-    note: 'שוקולד, שתייה וחמצוץ לבחירה',
-    comboSlots: [
-      { label: 'שוקולד', pick: { category: 'sweets' } },
-      { label: 'שתייה', pick: { category: 'drinks' } },
-      { label: 'חמצוץ', pick: { bag: true } },
-    ],
-  }),
-  combo('mystery-10', 'שקית הפתעה 10 ₪', 10, { shape: 'mystery', c1: '#C9A26B', c2: '#1C1A17', label: '10', note: 'שקית אטומה. שווה יותר ממה ששילמת.' }),
-  combo('mystery-15', 'שקית הפתעה 15 ₪', 15, { shape: 'mystery', c1: '#B08852', c2: '#1C1A17', label: '15', note: 'שקית אטומה, גדולה יותר.' }),
-  combo('mystery-25', 'שקית הפתעה 25 ₪', 25, { shape: 'mystery', c1: '#8C6A3E', c2: '#F4EAD5', label: '25', note: 'השקית הגדולה. יש בה פחית.' }),
-
-  // הצלה וציוד
-  rescue('pen-black', 'עט שחור', 3, { glyph: '🖊️', c1: '#1C1A17', c2: '#F4EAD5', label: 'שחור' }),
-  rescue('pen-blue', 'עט כחול', 3, { glyph: '🖊️', c1: '#1D4ED8', c2: '#F4EAD5', label: 'כחול' }),
-  rescue('tipex', 'טיפקס', 6, { glyph: '🩹', c1: '#F4EAD5', c2: '#1C1A17', label: 'טיפקס' }),
-  rescue('eraser', 'מחק', 2, { glyph: '🧽', c1: '#FFC2DD', c2: '#1C1A17', label: 'מחק' }),
-  rescue('paper', 'דפים (5)', 1, { glyph: '📄', c1: '#F4EAD5', c2: '#1C1A17', label: 'דפים' }),
-  rescue('tissues', 'חבילת טישו אישית', 2, { glyph: '🤧', c1: '#BFE9FF', c2: '#1C1A17', label: 'טישו' }),
-  rescue('wipes', 'מגבונים', 5, { glyph: '🧻', c1: '#E8F5D0', c2: '#1C1A17', label: 'מגבונים' }),
-  rescue('charger-rent', 'השכרת מטען', 5, { glyph: '🔋', c1: '#E8F5D0', c2: '#1C1A17', label: 'מטען', note: 'מחזירים בסוף ההפסקה' }),
 ]
 
 export const SEED_PRODUCTS = RAW.map((p, i) => ({ ...p, sort: i }))

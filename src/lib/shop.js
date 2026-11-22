@@ -8,14 +8,15 @@ export const isAvailable = (p) => Boolean(p) && p.stock !== 'out'
 
 /**
  * מחזור החיים של הזמנה:
- * awaiting_payment → preparing → on_the_way → delivered
+ * awaiting_payment → preparing → ready → on_the_way → delivered
  * או rejected (תשלום נדחה, עם סיבה) / cancelled (בוטלה ע"י מנהל)
  */
 export const ORDER_STATUS = {
   awaiting_payment: { label: 'ממתין לאישור תשלום', admin: 'ממתין לאישור', step: 0 },
   preparing: { label: 'תשלום אושר, מכינים לך', cashLabel: 'ההזמנה התקבלה, מכינים לך', admin: 'בהכנה', step: 1 },
-  on_the_way: { label: 'בדרך לחדר / מוכן', admin: 'בדרך / מוכן', step: 2 },
-  delivered: { label: 'נמסר. בתיאבון', admin: 'נמסר', step: 3 },
+  ready: { label: 'ההזמנה מוכנה', admin: 'מוכן', step: 2 },
+  on_the_way: { label: 'בדרך לחדר שלך', admin: 'בדרך לחדר', step: 3 },
+  delivered: { label: 'נמסר. בתיאבון', admin: 'נמסר', step: 4 },
   rejected: { label: 'התשלום נדחה', admin: 'נדחה', step: -1 },
   cancelled: { label: 'ההזמנה בוטלה', admin: 'בוטל', step: -1 },
 }
@@ -32,7 +33,7 @@ export const PAYMENT = {
   cash: { label: 'מזומן' },
 }
 
-export const ACTIVE_STATUSES = ['awaiting_payment', 'preparing', 'on_the_way']
+export const ACTIVE_STATUSES = ['awaiting_payment', 'preparing', 'ready', 'on_the_way']
 
 /** מספר טלפון ישראלי: נייד 05X / 07X (10 ספרות) או קווי 02/03/04/08/09 (9 ספרות), כולל +972 */
 export function normalizeIsraeliPhone(input) {

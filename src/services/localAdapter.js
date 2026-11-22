@@ -2,7 +2,7 @@
  * מצב דמו (LocalStorage): עובד מיד בלי שום חיבור, כדי לבדוק את כל המסכים.
  * הנתונים נשמרים רק בדפדפן הזה. לסנכרון אמיתי בין טלפונים מחברים Firebase.
  */
-import { SEED_PRODUCTS, CATALOG_VERSION } from '../data/catalog.js'
+import { SEED_PRODUCTS, CATALOG_VERSION, REMOVED_CATEGORIES } from '../data/catalog.js'
 import { DEFAULT_SETTINGS, withSettingsDefaults } from './defaults.js'
 import { readLS, writeLS, uid, sha256 } from '../lib/utils.js'
 import { SITE_CONFIG } from '../config.js'
@@ -20,7 +20,7 @@ const K = {
   images: 'ybc2:productImages',
 }
 
-const DEMO_OWNER = { email: 'demo@yb-crave.app', name: 'מנהל ראשי (דמו)', role: 'owner', addedAt: 0 }
+const DEMO_OWNER = { id: 'owner', name: 'מנהל ראשי (דמו)', role: 'owner', addedAt: 0 }
 
 const listeners = new Map()
 const on = (topic, cb) => {
@@ -48,10 +48,12 @@ export function createLocalAdapter() {
     writeLS(K.admins, l)
     emit('admins')
   }
-  const sessionState = () =>
-    sessionStorage.getItem(K.session) === '1'
-      ? { status: 'admin', email: DEMO_OWNER.email, name: DEMO_OWNER.name, role: 'owner' }
-      : { status: 'signedOut' }
+  const sessionState = () => {
+    const id = sessionStorage.getItem(K.session)
+    if (!id) return { status: 'signedOut' }
+    const a = getAdmins().find((x) => x.id === id) || DEMO_OWNER
+    return { status: 'admin', id: a.id, name: a.name, role: a.role }
+  }
 
   return {
     mode: 'demo',
@@ -60,8 +62,9 @@ export function createLocalAdapter() {
       const existing = readLS(K.products, null)
       if (!existing) writeLS(K.products, SEED_PRODUCTS)
       else if (readLS(K.version, 0) < CATALOG_VERSION) {
-        const ids = new Set(existing.map((p) => p.id))
-        writeLS(K.products, [...existing, ...SEED_PRODUCTS.filter((p) => !ids.has(p.id))])
+        const kept = existing.filter((p) => !REMOVED_CATEGORIES.includes(p.category))
+        const ids = new Set(kept.map((p) => p.id))
+        writeLS(K.products, [...kept, ...SEED_PRODUCTS.filter((p) => !ids.has(p.id))])
       }
       writeLS(K.version, CATALOG_VERSION)
       if (!readLS(K.settings, null)) writeLS(K.settings, DEFAULT_SETTINGS)
@@ -173,12 +176,12 @@ export function createLocalAdapter() {
       run()
       return on('admins', run)
     },
-    async addAdmin({ name, email, role }) {
-      const e = email.trim().toLowerCase()
-      setAdmins([...getAdmins().filter((a) => a.email !== e), { name: name.trim(), email: e, role, addedAt: Date.now() }])
+    async addAdmin({ name, pin, role }) {
+      if (getAdmins().some((a) => a.pin === pin) || pin === SITE_CONFIG.demoAdminPin) throw new Error('הקוד הזה כבר תפוס')
+      setAdmins([...getAdmins(), { id: uid('a_'), name: name.trim(), pin, role, addedAt: Date.now() }])
     },
-    async removeAdmin(email) {
-      setAdmins(getAdmins().filter((a) => a.email !== email || a.role === 'owner'))
+    async removeAdmin(id) {
+      setAdmins(getAdmins().filter((a) => a.id !== id || a.id === 'owner'))
     },
 
     // ---------- כניסה (דמו: קוד) ----------
@@ -187,8 +190,9 @@ export function createLocalAdapter() {
       return on('session', () => cb(sessionState()))
     },
     async adminSignIn(_email, pin) {
-      if ((await sha256(pin)) !== (await sha256(SITE_CONFIG.demoAdminPin))) throw new Error('קוד שגוי')
-      sessionStorage.setItem(K.session, '1')
+      const other = getAdmins().find((a) => a.pin && a.pin === pin)
+      if (!other && (await sha256(pin)) !== (await sha256(SITE_CONFIG.demoAdminPin))) throw new Error('קוד שגוי')
+      sessionStorage.setItem(K.session, other ? other.id : 'owner')
       emit('session')
     },
     async adminSignOut() {

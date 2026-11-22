@@ -51,8 +51,9 @@ function useNearScreen(ref) {
 function ProductImageBase({ product, className = '', artClass = 'h-[78%] w-[78%]', dim = false }) {
   const ref = useRef(null)
   const near = useNearScreen(ref)
-  const direct = BUNDLED[product?.id] || product?.imageUrl || ''
   const v = product?.imageV || 0
+  const cloudUrl = v && storage.imageUrlFor ? storage.imageUrlFor(product.id, v) : ''
+  const direct = BUNDLED[product?.id] || product?.imageUrl || cloudUrl
   const [uploaded, setUploaded] = useState(() => (v ? memory.get(`${product.id}:${v}`) : null) || null)
   const [broken, setBroken] = useState(false)
 

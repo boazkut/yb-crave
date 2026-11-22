@@ -12,7 +12,7 @@ import { navigate } from '../lib/router.js'
 
 export const lookOf = (c, i = 0) => {
   const l = CATEGORY_LOOK[c.id] || {}
-  return { image: l.image || '', tone: TONES[(l.tone ?? i) % TONES.length], video: l.video || ['drinks', 'sweets', 'salty'][i % 3] }
+  return { image: l.image || '', clip: l.clip || '', tone: TONES[(l.tone ?? i) % TONES.length], video: l.video || ['drinks', 'candy', 'salty', 'sweets'][i % 4] }
 }
 
 const priceRange = (items) => {
@@ -34,7 +34,20 @@ export function CategoryCard({ category, index, products }) {
       className="flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right shadow-[0_6px_24px_-12px_rgba(0,0,0,.45)] transition-transform active:scale-[0.985]"
     >
       <div className="h-[86px] w-[112px] shrink-0 overflow-hidden rounded-2xl bg-tile">
-        {look.image ? (
+        {look.clip ? (
+          <video
+            src={look.clip}
+            poster={look.image}
+            className="h-full w-full object-cover"
+            muted
+            loop
+            autoPlay
+            playsInline
+            preload="metadata"
+            disablePictureInPicture
+            aria-hidden="true"
+          />
+        ) : look.image ? (
           <img src={look.image} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
         ) : sample && (sample.imageV || sample.imageUrl) ? (
           <ProductImage product={sample} className="h-full w-full" />
@@ -156,7 +169,7 @@ export function BagBuilderCard({ onOpen }) {
   return (
     <button type="button" onClick={onOpen} className="mb-3 flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right shadow-[0_6px_24px_-14px_rgba(0,0,0,.5)]">
       <div className="h-[72px] w-[92px] shrink-0 overflow-hidden rounded-2xl bg-tile">
-        <img src="/media/cat-sour.jpg" alt="" className="h-full w-full object-cover" loading="lazy" />
+        <img src="/media/cat-candy.jpg" alt="" className="h-full w-full object-cover" loading="lazy" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[17px] font-extrabold">הרכב שקית חמצוצים</p>

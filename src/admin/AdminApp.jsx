@@ -39,6 +39,7 @@ function Login({ mode }) {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const demo = mode === 'demo'
+  const pinMode = mode !== 'firebase'
 
   const run = async (fn) => {
     setBusy(true)
@@ -53,12 +54,12 @@ function Login({ mode }) {
     }
   }
 
-  if (demo) {
+  if (pinMode) {
     return (
-      <AuthFrame title="אזור מנהלים" sub="האתר רץ כרגע במצב דמו, בלי Firebase. הכניסה היא עם קוד הדמו, והנתונים נשמרים רק בטלפון הזה.">
+      <AuthFrame title="כניסת מנהלים" sub={demo ? 'מצב דמו: הנתונים נשמרים רק בטלפון הזה.' : 'מקלידים את הקוד האישי שלכם.'}>
         <form onSubmit={(e) => (e.preventDefault(), run(() => storage.adminSignIn('', password)))} className="space-y-3">
           <label className="label" htmlFor="pin">
-            קוד דמו
+            קוד מנהל
           </label>
           <input id="pin" type="password" inputMode="numeric" className="field text-center text-xl tracking-[0.4em]" value={password} onChange={(e) => setPassword(e.target.value)} />
           {err && <p className="error">{err}</p>}

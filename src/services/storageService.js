@@ -1,9 +1,13 @@
 /**
  * storageService — שכבת הנתונים היחידה של האפליקציה.
- * בלי הגדרות Firebase האתר רץ במצב דמו (LocalStorage), ועם הגדרות הוא עובר לבד ל-Firebase.
+ * סדר הבחירה:
+ *   1. Firebase — אם הוגדר firebaseConfig
+ *   2. ענן (השרת של האתר ב-Netlify, /api) — כשהאתר רץ ב-Netlify
+ *   3. דמו (LocalStorage) — כשמריצים מקומית בלי שרת
  */
 import { isFirebaseConfigured } from '../config.js'
 import { createLocalAdapter } from './localAdapter.js'
+import { createCloudAdapter, probeCloud } from './cloudAdapter.js'
 
 let adapter = null
 let ready = null
@@ -16,11 +20,12 @@ export function initStorage() {
         const { createFirebaseAdapter } = await import('./firebaseAdapter.js')
         adapter = createFirebaseAdapter()
       } catch (err) {
-        console.error('Firebase לא נטען, עוברים למצב דמו', err)
-        adapter = createLocalAdapter()
+        console.error('Firebase לא נטען', err)
       }
-    } else {
-      adapter = createLocalAdapter()
+    }
+    if (!adapter) {
+      const health = await probeCloud()
+      adapter = health ? createCloudAdapter(health) : createLocalAdapter()
     }
     await adapter.init()
     return adapter

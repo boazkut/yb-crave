@@ -9,8 +9,9 @@ const CLIPS = {
   drinks: { src: '/media/bg-drinks.mp4', poster: '/media/poster-drinks.jpg' },
   sweets: { src: '/media/bg-sweets.mp4', poster: '/media/poster-sweets.jpg' },
   salty: { src: '/media/bg-salty.mp4', poster: '/media/poster-salty.jpg' },
+  candy: { src: '/media/bg-candy.mp4', poster: '/media/poster-candy.jpg' },
 }
-const ORDER = ['drinks', 'sweets', 'salty']
+const ORDER = ['drinks', 'candy', 'salty', 'sweets']
 const STEP = 620
 
 const lowPower = () =>

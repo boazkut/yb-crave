@@ -9,7 +9,7 @@ import { BagBuilderCard, CategoryCard, CategoryHeader, ProductGrid, lookOf } fro
 import { Toasts } from './components/Overlays.jsx'
 import { CheckoutSheet } from './features/Checkout.jsx'
 import { BagBuilder, ComboBuilder } from './features/Builders.jsx'
-import { CartBar, OrderStatus } from './features/OrderStatus.jsx'
+import { CartBar, OrderStatus, SupportPhones } from './features/OrderStatus.jsx'
 import { navigate } from './lib/router.js'
 import { useSecretAdmin } from './lib/secretAdmin.js'
 
@@ -95,8 +95,11 @@ function Home({ byCategory }) {
               <CategoryCard key={c.id} category={c} index={i} products={byCategory[c.id] || []} />
             ))}
           </main>
-          <footer className="mx-auto mt-8 max-w-5xl px-5 text-[13px] text-white/70">
-            {settings.storeOpen ? 'תשלום ב-PayBox, ב-Bit או במזומן.' : 'החנות סגורה כרגע, אפשר להסתכל בינתיים.'}
+          <footer className="mx-auto mt-8 max-w-5xl space-y-4 px-5">
+            <SupportPhones light />
+            <p className="text-[13px] text-white/70">
+              {settings.storeOpen ? 'תשלום ב-PayBox, ב-Bit או במזומן.' : 'החנות סגורה כרגע, אפשר להסתכל בינתיים.'}
+            </p>
           </footer>
         </>
       )}
@@ -123,6 +126,9 @@ function CategoryView({ category, items }) {
             {budget ? `אין כאן מוצרים עד ${budget} ₪.` : 'עוד אין מוצרים בקטגוריה הזאת.'}
           </div>
         )}
+        <div className="mt-6 rounded-[22px] bg-white p-4">
+          <SupportPhones />
+        </div>
       </main>
     </>
   )

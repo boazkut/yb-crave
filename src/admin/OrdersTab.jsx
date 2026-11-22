@@ -1,17 +1,60 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bell, BellOff, Check, ImageOff, MessageCircle, MoreHorizontal, Phone, X } from 'lucide-react'
+import { Bell, BellOff, BellRing, Check, ImageOff, MessageCircle, MoreHorizontal, Phone, X } from 'lucide-react'
 import { storage } from '../services/storageService.js'
 import { ORDER_STATUS, PAYMENT, formatPhone, toWhatsApp, waLink } from '../lib/shop.js'
 import { ils } from '../lib/utils.js'
 import { useLocal } from '../state/useLocal.js'
+import { pushSupport, subscribePush } from '../lib/push.js'
 import { Section, Segmented, StatusBadge, chime, timeAgo, unlockAudio, useToast } from './ui.jsx'
 
-export function useAllOrders() {
+export function useAllOrders(days = 7) {
   const [orders, setOrders] = useState(null)
-  useEffect(() => storage.subscribeOrders(setOrders), [])
+  useEffect(() => storage.subscribeOrders(setOrders, { days }), [days])
   return orders
+}
+
+function AdminPushCard() {
+  const toast = useToast()
+  const [on, setOn] = useLocal('ybc2:adminPushOn', false)
+  const [busy, setBusy] = useState(false)
+  if (!storage.saveAdminPush) return null
+  const support = pushSupport()
+  if (support === 'unsupported') return null
+  const enable = async () => {
+    setBusy(true)
+    try {
+      const sub = await subscribePush(storage.vapidPublicKey)
+      await storage.saveAdminPush(sub)
+      await storage.testAdminPush()
+      setOn(true)
+      toast('התראות פעילות. שלחנו התראת בדיקה')
+    } catch (e) {
+      toast(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (on) return null
+  return (
+    <div className="card flex items-center gap-3 p-4">
+      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink text-white">
+        <BellRing size={20} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">התראה על כל הזמנה חדשה</p>
+        <p className="text-[13px] text-muted">
+          {support === 'ios-install' ? 'באייפון: "שיתוף" ← "הוספה למסך הבית", ואז מפעילים מהאייקון.' : 'גם כשהאתר סגור. מפעילים פעם אחת בכל טלפון.'}
+        </p>
+      </div>
+      {support !== 'ios-install' && (
+        <button type="button" onClick={enable} disabled={busy} className="btn-primary shrink-0 px-3 py-2.5 text-sm">
+          {busy ? '...' : 'הפעלה'}
+        </button>
+      )}
+    </div>
+  )
 }
 
 export const paymentState = (o) => (o.paid ? 'approved' : o.status === 'rejected' ? 'rejected' : o.status === 'cancelled' ? 'cancelled' : 'pending')
@@ -213,8 +256,13 @@ function OrderCard({ order: o }) {
             </div>
           ))}
         {o.status === 'preparing' && (
-          <button type="button" onClick={() => update({ status: 'on_the_way' }, `#${o.number} בדרך`)} className="btn-primary w-full">
-            סמן: בדרך לחדר / מוכן
+          <button type="button" onClick={() => update({ status: 'ready' }, `#${o.number} מוכן. הלקוח קיבל התראה`)} className="btn-primary w-full">
+            ההזמנה מוכנה
+          </button>
+        )}
+        {o.status === 'ready' && (
+          <button type="button" onClick={() => update({ status: 'on_the_way' }, `#${o.number} בדרך. הלקוח קיבל התראה`)} className="btn-primary w-full">
+            יצאנו לחדר {o.customer.room}
           </button>
         )}
         {o.status === 'on_the_way' && (
@@ -332,7 +380,7 @@ function Transfers({ orders }) {
 
 const FILTERS = {
   awaiting: (o) => o.status === 'awaiting_payment',
-  active: (o) => o.status === 'preparing' || o.status === 'on_the_way',
+  active: (o) => ['preparing', 'ready', 'on_the_way'].includes(o.status),
   delivered: (o) => o.status === 'delivered',
   rejected: (o) => o.status === 'rejected' || o.status === 'cancelled',
 }
@@ -377,6 +425,7 @@ export function OrdersTab() {
           {sound ? 'צליל פעיל' : 'בלי צליל'}
         </button>
       </div>
+      <AdminPushCard />
       <Segmented
         value={filter}
         onChange={setFilter}
