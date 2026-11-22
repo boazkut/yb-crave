@@ -6,15 +6,34 @@
  *   shape: bag | tube | bar | box | cookie | strip | gummy | lolly | can | bottle | pouch | supply | mystery | combo
  */
 
-export const CATALOG_VERSION = 5
+export const CATALOG_VERSION = 6
 
 export const DEFAULT_CATEGORIES = [
-  { id: 'drinks', name: 'פחיות ושתייה' },
-  { id: 'salty', name: 'חטיפים מלוחים' },
-  { id: 'sweets', name: 'שוקולדים ומתוקים' },
-  { id: 'sour', name: 'חמצוצים וגומי' },
-  { id: 'combos', name: 'קומבואים והפתעות' },
-  { id: 'rescue', name: 'הצלה וציוד' },
+  { id: 'drinks', name: 'פחיות ושתייה', desc: 'פחיות קרות, אנרגיה, מים ושוקו' },
+  { id: 'salty', name: 'חטיפים מלוחים', desc: 'במבה, ביסלי, דוריטוס וכל החבר׳ה' },
+  { id: 'sweets', name: 'שוקולדים ומתוקים', desc: 'קינדר, קליק, עוגיות וחטיפי שוקולד' },
+  { id: 'sour', name: 'חמצוצים וגומי', desc: 'פסים, נחשים ושקית שמרכיבים לבד' },
+  { id: 'combos', name: 'קומבואים והפתעות', desc: 'קומבו שיעור כפול ושקיות הפתעה' },
+  { id: 'rescue', name: 'הצלה וציוד', desc: 'עטים, טיפקס, טישו ומטען' },
+]
+
+/** תמונה, צבע תגית וסרטון רקע לכל קטגוריה (קטגוריות חדשות מקבלות צבע לפי הסדר) */
+export const CATEGORY_LOOK = {
+  drinks: { image: '/media/cat-drinks.jpg', tone: 0, video: 'drinks' },
+  salty: { image: '/media/cat-salty.jpg', tone: 1, video: 'salty' },
+  sweets: { image: '/media/cat-sweets.jpg', tone: 2, video: 'sweets' },
+  sour: { image: '/media/cat-sour.jpg', tone: 3, video: 'sweets' },
+  combos: { image: '/media/cat-combos.jpg', tone: 4, video: 'drinks' },
+  rescue: { image: '', tone: 5, video: 'salty' },
+}
+
+export const TONES = [
+  { bg: '#E8F0FE', fg: '#1D4ED8' },
+  { bg: '#FFF1E6', fg: '#C2410C' },
+  { bg: '#FDE8EF', fg: '#BE185D' },
+  { bg: '#E7F6EC', fg: '#15803D' },
+  { bg: '#F1EAFE', fg: '#6D28D9' },
+  { bg: '#EEF2F6', fg: '#334155' },
 ]
 
 const make = (category, shape) => (id, name, price, o = {}) => ({

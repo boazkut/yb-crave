@@ -8,10 +8,10 @@
 export const SITE_CONFIG = {
   // מספר הטלפון שמקבל העברות ב-PayBox וב-Bit
   transferPhone: '055-775-7686',
-  // קישור שנפתח בכפתור "פתח PayBox" (אפשר לשים קישור לקבוצת PayBox שלכם)
-  payboxLink: 'https://payboxapp.page.link/',
-  // קישור שנפתח בכפתור "פתח Bit"
-  bitLink: 'https://www.bitpay.co.il/he',
+  // לא חובה: קישור משלכם שייפתח בלחיצה על "לתשלום ב-PayBox" (למשל קבוצת PayBox). ריק = פותח את האפליקציה
+  payboxLink: '',
+  // לא חובה: קישור תשלום עסקי ל-Bit. ריק = פותח את אפליקציית Bit
+  bitLink: '',
   // וואטסאפ ללקוחות שצריכים עזרה (פורמט בינלאומי, בלי + ובלי 0): 972557757686
   whatsappNumber: '972557757686',
 

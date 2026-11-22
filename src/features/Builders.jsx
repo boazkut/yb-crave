@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Check } from 'lucide-react'
 import { Sheet } from '../components/Overlays.jsx'
-import { ProductArt } from '../components/ProductArt.jsx'
+import { ProductImage } from '../components/ProductImage.jsx'
 import { useData } from '../state/DataContext.jsx'
 import { useCart } from '../state/CartContext.jsx'
 import { useUI } from '../state/UIContext.jsx'
@@ -28,9 +28,7 @@ function PickTile({ product, selected, onClick }) {
           <Check size={12} strokeWidth={3} />
         </span>
       )}
-      <div className="grid aspect-square w-full place-items-center rounded-xl bg-tile">
-        <ProductArt product={product} className="h-[78%] w-[78%]" />
-      </div>
+      <ProductImage product={product} className="aspect-square w-full rounded-xl bg-tile" />
       <span className="mt-1.5 line-clamp-2 text-[12px] font-medium leading-tight">{product.name}</span>
     </button>
   )

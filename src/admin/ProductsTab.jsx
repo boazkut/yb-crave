@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowDown, ArrowUp, ChevronDown, ImagePlus, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Camera, ChevronDown, ImagePlus, Plus, SkipForward, Trash2, X } from 'lucide-react'
 import { useData } from '../state/DataContext.jsx'
 import { storage } from '../services/storageService.js'
-import { ProductArt } from '../components/ProductArt.jsx'
+import { ProductImage, hasRealImage } from '../components/ProductImage.jsx'
 import { STOCK } from '../lib/shop.js'
 import { compressProductImage } from '../lib/imageCompress.js'
 import { uid } from '../lib/utils.js'
@@ -30,17 +30,16 @@ function CommitInput({ value, onCommit, className = 'field py-2.5 text-sm', ...r
   )
 }
 
-function ImagePicker({ product, onChange }) {
+function ImagePicker({ product, onUpload, onUrl, onRemove }) {
   const ref = useRef(null)
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const real = hasRealImage(product)
   return (
     <div>
       <span className="label">תמונה</span>
       <div className="flex items-center gap-3">
-        <div className="grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-tile">
-          <ProductArt product={product} className="h-14 w-12" />
-        </div>
+        <ProductImage product={product} className="h-16 w-16 shrink-0 rounded-xl bg-tile" artClass="h-14 w-12" />
         <input
           ref={ref}
           type="file"
@@ -53,32 +52,106 @@ function ImagePicker({ product, onChange }) {
             setBusy(true)
             try {
               const { dataUrl } = await compressProductImage(f)
-              await onChange(dataUrl)
+              await onUpload(dataUrl)
             } catch (err) {
-              toast(err.message)
+              toast(err.message || 'ההעלאה נכשלה')
             } finally {
               setBusy(false)
             }
           }}
         />
         <button type="button" disabled={busy} onClick={() => ref.current?.click()} className="btn-secondary px-3 py-2.5 text-sm">
-          <ImagePlus size={16} /> {busy ? 'מעלים...' : 'העלאה'}
+          <ImagePlus size={16} /> {busy ? 'מעלים...' : real ? 'החלפה' : 'העלאה'}
         </button>
-        {product.imageUrl && (
-          <button type="button" onClick={() => onChange('')} className="btn-ghost px-2 py-2.5 text-sm">
+        {real && onRemove && (
+          <button type="button" onClick={onRemove} className="btn-ghost px-2 py-2.5 text-sm">
             הסרה
           </button>
         )}
       </div>
-      <CommitInput
-        value={product.imageUrl?.startsWith('data:') ? '' : product.imageUrl}
-        onCommit={(v) => onChange(v.trim())}
-        dir="ltr"
-        placeholder="או קישור לתמונה: https://..."
-        className="field mt-2 py-2.5 text-right text-sm"
-        aria-label="קישור לתמונה"
-      />
+      {onUrl && (
+        <CommitInput
+          value={product.imageUrl}
+          onCommit={(v) => onUrl(v.trim())}
+          dir="ltr"
+          placeholder="או קישור לתמונה: https://..."
+          className="field mt-2 py-2.5 text-right text-sm"
+          aria-label="קישור לתמונה"
+        />
+      )}
     </div>
+  )
+}
+
+/** מצב צילום מהיר: עוברים מוצר אחרי מוצר ומצלמים את המלאי האמיתי */
+function QuickPhotos({ products, onClose }) {
+  const toast = useToast()
+  const queue = useMemo(() => products.filter((p) => !hasRealImage(p)).map((p) => p.id), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const { byId } = useData()
+  const [i, setI] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const ref = useRef(null)
+  const p = byId[queue[i]]
+
+  if (!p) {
+    return (
+      <Section title="צילום מהיר" aside={<button type="button" onClick={onClose} className="text-muted" aria-label="סגירה"><X size={20} /></button>}>
+        <p className="text-sm">{queue.length ? 'סיימתם! לכל המוצרים יש תמונה.' : 'לכל המוצרים כבר יש תמונה.'}</p>
+      </Section>
+    )
+  }
+
+  return (
+    <Section
+      title="צילום מהיר"
+      aside={
+        <button type="button" onClick={onClose} className="text-muted" aria-label="סגירה">
+          <X size={20} />
+        </button>
+      }
+    >
+      <p className="text-[13px] text-muted">
+        מוצר {i + 1} מתוך {queue.length}. מניחים את המוצר על רקע בהיר ומצלמים מקרוב.
+      </p>
+      <div className="mt-3 flex items-center gap-3">
+        <ProductImage product={p} className="h-20 w-20 shrink-0 rounded-2xl bg-tile" artClass="h-16 w-14" />
+        <div>
+          <p className="text-lg font-bold">{p.name}</p>
+          <p className="text-sm text-muted">{p.price} ₪</p>
+        </div>
+      </div>
+      <input
+        ref={ref}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={async (e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (!f) return
+          setBusy(true)
+          try {
+            const { dataUrl } = await compressProductImage(f)
+            await storage.setProductImage(p.id, dataUrl)
+            toast(`${p.name}: נשמר`)
+            setI((x) => x + 1)
+          } catch (err) {
+            toast(err.message || 'השמירה נכשלה')
+          } finally {
+            setBusy(false)
+          }
+        }}
+      />
+      <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+        <button type="button" disabled={busy} onClick={() => ref.current?.click()} className="btn-primary py-3.5">
+          <Camera size={18} /> {busy ? 'שומרים...' : 'צילום'}
+        </button>
+        <button type="button" onClick={() => setI((x) => x + 1)} className="btn-secondary px-4">
+          <SkipForward size={16} /> דילוג
+        </button>
+      </div>
+    </Section>
   )
 }
 
@@ -97,8 +170,8 @@ function ProductRow({ p, categories }) {
   return (
     <li className="py-3">
       <div className="flex items-center gap-3">
-        <button type="button" onClick={() => setOpen((o) => !o)} className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-tile" aria-label={`עריכת ${p.name}`}>
-          <ProductArt product={p} dim={p.stock === 'out'} className="h-12 w-10" />
+        <button type="button" onClick={() => setOpen((o) => !o)} className="shrink-0" aria-label={`עריכת ${p.name}`}>
+          <ProductImage product={p} dim={p.stock === 'out'} className="h-14 w-14 rounded-xl bg-tile" artClass="h-12 w-10" />
         </button>
         <button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-1 items-center gap-1 text-right">
           <span className="truncate text-[15px] font-medium">{p.name}</span>
@@ -148,7 +221,19 @@ function ProductRow({ p, categories }) {
                   <CommitInput value={p.note} onCommit={(v) => save({ note: v.trim() })} placeholder="לא חובה" />
                 </div>
               </div>
-              <ImagePicker product={p} onChange={(v) => save({ imageUrl: v }, v ? 'התמונה עודכנה' : 'התמונה הוסרה')} />
+              <ImagePicker
+                product={p}
+                onUpload={async (d) => {
+                  await storage.setProductImage(p.id, d)
+                  toast('התמונה עודכנה')
+                }}
+                onUrl={(v) => save({ imageUrl: v }, v ? 'הקישור נשמר' : 'הקישור הוסר')}
+                onRemove={async () => {
+                  if (p.imageUrl) await storage.saveProduct({ ...p, imageUrl: '' })
+                  if (p.imageV) await storage.setProductImage(p.id, null)
+                  toast('התמונה הוסרה')
+                }}
+              />
               <div className="flex items-center justify-between">
                 <span className="text-sm">אפשר לבחור בשקית חמצוצים</span>
                 <Toggle checked={Boolean(p.bagEligible)} onChange={(v) => save({ bagEligible: v })} label="בשקית חמצוצים" />
@@ -177,18 +262,20 @@ function AddProduct({ categories, defaultCategory, onDone }) {
   const [name, setName] = useState('')
   const [price, setPrice] = useState('5')
   const [category, setCategory] = useState(defaultCategory || categories[0]?.id)
-  const [imageUrl, setImageUrl] = useState('')
-  const preview = { id: 'new', name: name || 'מוצר חדש', imageUrl, art: { shape: 'bag', c1: '#141414', c2: '#FAF9F6', label: name || 'חדש' } }
+  const [image, setImage] = useState('')
+  const preview = { id: 'new', name: name || 'מוצר חדש', imageUrl: image, art: { shape: 'bag', c1: '#141414', c2: '#FAF9F6', label: name || 'חדש' } }
 
   const submit = async (e) => {
     e.preventDefault()
     if (!name.trim()) return toast('צריך שם למוצר')
+    const id = uid('p-')
+    const uploaded = image.startsWith('data:')
     await storage.saveProduct({
-      id: uid('p-'),
+      id,
       name: name.trim(),
       category,
       price: Number(price) || 0,
-      imageUrl,
+      imageUrl: uploaded ? '' : image,
       stock: 'in',
       art: preview.art,
       note: '',
@@ -196,6 +283,7 @@ function AddProduct({ categories, defaultCategory, onDone }) {
       comboSlots: null,
       sort: Date.now(),
     })
+    if (uploaded) await storage.setProductImage(id, image)
     toast(`${name.trim()} נוסף`)
     onDone()
   }
@@ -229,7 +317,7 @@ function AddProduct({ categories, defaultCategory, onDone }) {
             </select>
           </div>
         </div>
-        <ImagePicker product={preview} onChange={setImageUrl} />
+        <ImagePicker product={preview} onUpload={setImage} onUrl={setImage} onRemove={() => setImage('')} />
         <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={onDone} className="btn-secondary">
             ביטול
@@ -314,6 +402,8 @@ export function ProductsTab() {
   const [cat, setCat] = useState('all')
   const [q, setQ] = useState('')
   const [adding, setAdding] = useState(false)
+  const [quick, setQuick] = useState(false)
+  const missing = products.filter((p) => !hasRealImage(p)).length
 
   const list = useMemo(
     () => products.filter((p) => (cat === 'all' || p.category === cat) && (!q.trim() || p.name.includes(q.trim()))),
@@ -330,6 +420,21 @@ export function ProductsTab() {
         </button>
       </div>
       {adding && <AddProduct categories={categories} defaultCategory={cat !== 'all' ? cat : undefined} onDone={() => setAdding(false)} />}
+      {quick ? (
+        <QuickPhotos products={cat === 'all' ? products : products.filter((p) => p.category === cat)} onClose={() => setQuick(false)} />
+      ) : (
+        missing > 0 && (
+          <button type="button" onClick={() => setQuick(true)} className="card flex w-full items-center gap-3 p-4 text-right">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink text-white">
+              <Camera size={20} />
+            </span>
+            <span className="flex-1">
+              <span className="block font-semibold">צילום מהיר של המלאי</span>
+              <span className="block text-[13px] text-muted">ל-{missing} מוצרים עוד אין תמונה אמיתית. מצלמים אחד אחרי השני.</span>
+            </span>
+          </button>
+        )
+      )}
       <input className="field" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש מוצר" />
       <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
         {[{ id: 'all', name: `הכל (${products.length})` }, ...categories].map((c) => (

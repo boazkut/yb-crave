@@ -14,5 +14,7 @@ export const DEFAULT_SETTINGS = {
 export const withSettingsDefaults = (s) => {
   const merged = { ...DEFAULT_SETTINGS, ...(s || {}) }
   if (!Array.isArray(merged.categories) || !merged.categories.length) merged.categories = DEFAULT_CATEGORIES
+  const known = Object.fromEntries(DEFAULT_CATEGORIES.map((c) => [c.id, c]))
+  merged.categories = merged.categories.map((c) => ({ desc: known[c.id]?.desc || '', ...c }))
   return merged
 }

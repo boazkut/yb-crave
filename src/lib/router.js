@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 
 const EVT = 'ybc:navigate'
 
-export function navigate(path) {
+export function navigate(path, { replace = false } = {}) {
   if (window.location.pathname === path) return
-  window.history.pushState({}, '', path)
+  if (replace) window.history.replaceState({}, '', path)
+  else window.history.pushState({}, '', path)
   window.dispatchEvent(new Event(EVT))
   window.scrollTo(0, 0)
 }

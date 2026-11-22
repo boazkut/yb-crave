@@ -1,52 +1,106 @@
-import { forwardRef, memo, useEffect, useRef } from 'react'
-import { ChevronLeft, Plus } from 'lucide-react'
+import { memo, useEffect, useRef } from 'react'
+import { ChevronLeft, ChevronRight, PencilLine, Plus } from 'lucide-react'
+import { ProductImage } from './ProductImage.jsx'
 import { ProductArt } from './ProductArt.jsx'
 import { Stepper } from './Overlays.jsx'
 import { useCart } from '../state/CartContext.jsx'
 import { useUI } from '../state/UIContext.jsx'
+import { CATEGORY_LOOK, TONES } from '../data/catalog.js'
 import { STOCK } from '../lib/shop.js'
 import { ils } from '../lib/utils.js'
+import { navigate } from '../lib/router.js'
 
-export function CategoryNav({ categories, active, onJump, budget, setBudget }) {
+export const lookOf = (c, i = 0) => {
+  const l = CATEGORY_LOOK[c.id] || {}
+  return { image: l.image || '', tone: TONES[(l.tone ?? i) % TONES.length], video: l.video || ['drinks', 'sweets', 'salty'][i % 3] }
+}
+
+const priceRange = (items) => {
+  const prices = items.map((p) => Number(p.price)).filter((n) => !Number.isNaN(n))
+  if (!prices.length) return 'בקרוב'
+  const lo = Math.min(...prices)
+  const hi = Math.max(...prices)
+  return lo === hi ? `${lo} ₪` : `${lo}–${hi} ₪`
+}
+
+/** כרטיס קטגוריה בדף הבית: תמונה, שם, תיאור, תגית מחירים וחץ */
+export function CategoryCard({ category, index, products }) {
+  const look = lookOf(category, index)
+  const sample = products.find((p) => p.imageV || p.imageUrl) || products[0]
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`/c/${category.id}`)}
+      className="flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right shadow-[0_6px_24px_-12px_rgba(0,0,0,.45)] transition-transform active:scale-[0.985]"
+    >
+      <div className="h-[86px] w-[112px] shrink-0 overflow-hidden rounded-2xl bg-tile">
+        {look.image ? (
+          <img src={look.image} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
+        ) : sample && (sample.imageV || sample.imageUrl) ? (
+          <ProductImage product={sample} className="h-full w-full" />
+        ) : category.id === 'rescue' ? (
+          <div className="grid h-full w-full place-items-center" style={{ background: look.tone.bg, color: look.tone.fg }}>
+            <PencilLine size={34} strokeWidth={1.6} />
+          </div>
+        ) : sample ? (
+          <div className="grid h-full w-full place-items-center">
+            <ProductArt product={sample} className="h-[80%] w-[60%]" />
+          </div>
+        ) : null}
+      </div>
+      <div className="min-w-0 flex-1 py-1">
+        <h3 className="text-[18px] font-extrabold leading-tight">{category.name}</h3>
+        <p className="mt-1 line-clamp-2 text-[14px] leading-snug text-muted">{category.desc || `${products.length} מוצרים`}</p>
+        <span dir="ltr" className="mt-2 inline-block rounded-full px-3 py-1 text-[13px] font-bold" style={{ background: look.tone.bg, color: look.tone.fg }}>
+          {priceRange(products)}
+        </span>
+      </div>
+      <ChevronLeft size={22} className="shrink-0 text-[#9A9A9A]" />
+    </button>
+  )
+}
+
+/** סרגל עליון בדף קטגוריה: חזרה, שם, מעבר מהיר בין קטגוריות ותקציב */
+export function CategoryHeader({ categories, current, budget, setBudget }) {
   const rowRef = useRef(null)
   useEffect(() => {
-    rowRef.current?.querySelector(`[data-cat="${active}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
-  }, [active])
+    rowRef.current?.querySelector(`[data-cat="${current.id}"]`)?.scrollIntoView({ inline: 'center', block: 'nearest' })
+  }, [current.id])
 
   return (
-    <nav className="sticky top-0 z-30 border-b border-line bg-page/95 backdrop-blur" aria-label="קטגוריות">
-      <div ref={rowRef} className="no-scrollbar mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4 py-2">
+    <header className="sticky top-0 z-30 bg-white shadow-[0_1px_0_#EAEAEA]">
+      <div className="mx-auto flex max-w-5xl items-center gap-2 px-3 pt-2.5">
+        <button type="button" onClick={() => navigate('/')} className="grid h-10 w-10 place-items-center rounded-full bg-tile" aria-label="חזרה לקטגוריות">
+          <ChevronRight size={20} />
+        </button>
+        <h1 className="flex-1 truncate text-xl font-extrabold">{current.name}</h1>
+      </div>
+      <nav ref={rowRef} className="no-scrollbar mx-auto flex max-w-5xl gap-1.5 overflow-x-auto px-3 pt-2.5" aria-label="קטגוריות">
         {categories.map((c) => {
-          const on = active === c.id
+          const on = c.id === current.id
           return (
             <button
               key={c.id}
               type="button"
               data-cat={c.id}
-              onClick={() => onJump(c.id)}
-              aria-current={on ? 'true' : undefined}
-              className={`shrink-0 rounded-full px-3.5 py-2 text-[15px] transition-colors ${on ? 'bg-ink font-semibold text-white' : 'font-medium text-muted'}`}
+              onClick={() => !on && navigate(`/c/${c.id}`, { replace: true })}
+              aria-current={on ? 'page' : undefined}
+              className={`shrink-0 rounded-full px-3.5 py-2 text-[14px] ${on ? 'bg-ink font-semibold text-white' : 'bg-tile font-medium text-ink'}`}
             >
               {c.name}
             </button>
           )
         })}
-      </div>
-      <div className="no-scrollbar mx-auto flex max-w-5xl items-center gap-2 overflow-x-auto px-4 pb-2.5">
+      </nav>
+      <div className="no-scrollbar mx-auto flex max-w-5xl items-center gap-2 overflow-x-auto px-3 pb-2.5 pt-2">
         <span className="shrink-0 text-[13px] text-muted">תקציב</span>
         {[5, 10, 20].map((b) => (
-          <button
-            key={b}
-            type="button"
-            className="chip px-3 py-1.5 text-[13px]"
-            aria-pressed={budget === b}
-            onClick={() => setBudget(budget === b ? null : b)}
-          >
+          <button key={b} type="button" className="chip px-3 py-1.5 text-[13px]" aria-pressed={budget === b} onClick={() => setBudget(budget === b ? null : b)}>
             עד {b} ₪
           </button>
         ))}
       </div>
-    </nav>
+    </header>
   )
 }
 
@@ -55,20 +109,14 @@ function ProductCardBase({ product: p }) {
   const ui = useUI()
   const out = p.stock === 'out'
   const qty = cart.qtyOf(p.id)
-
-  const add = () => {
-    if (p.comboSlots) return ui.openSheet('combo', p.id)
-    cart.addProduct(p)
-  }
+  const add = () => (p.comboSlots ? ui.openSheet('combo', p.id) : cart.addProduct(p))
 
   return (
-    <article className={`flex flex-col rounded-2xl border border-line bg-white p-2 ${out ? 'opacity-60' : ''}`}>
-      <div className="relative aspect-square overflow-hidden rounded-xl bg-tile">
-        <ProductArt product={p} dim={out} className="absolute inset-[11%] h-[78%] w-[78%]" />
+    <article className="flex flex-col rounded-[20px] bg-white p-2 shadow-[0_6px_24px_-14px_rgba(0,0,0,.5)]">
+      <div className="relative aspect-square overflow-hidden rounded-2xl bg-tile">
+        <ProductImage product={p} dim={out} className="absolute inset-0" />
         {p.stock !== 'in' && (
-          <span
-            className={`absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold ${out ? 'text-danger' : 'text-ink'}`}
-          >
+          <span className={`absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold ${out ? 'text-danger' : 'text-ink'}`}>
             {STOCK[p.stock]?.label}
           </span>
         )}
@@ -77,12 +125,7 @@ function ProductCardBase({ product: p }) {
             {qty > 0 && !p.comboSlots ? (
               <Stepper size="sm" dark value={qty} onDec={() => cart.decProduct(p.id)} onInc={add} />
             ) : (
-              <button
-                type="button"
-                onClick={add}
-                className="grid h-9 w-9 place-items-center rounded-full bg-ink text-white active:scale-95"
-                aria-label={`הוספת ${p.name}`}
-              >
+              <button type="button" onClick={add} className="grid h-9 w-9 place-items-center rounded-full bg-ink text-white active:scale-95" aria-label={`הוספת ${p.name}`}>
                 <Plus size={18} strokeWidth={2.4} />
               </button>
             )}
@@ -99,37 +142,27 @@ function ProductCardBase({ product: p }) {
 }
 export const ProductCard = memo(ProductCardBase)
 
-export const CategorySection = forwardRef(function CategorySection({ category, products, lead }, ref) {
+export function ProductGrid({ products }) {
   return (
-    <section ref={ref} id={`cat-${category.id}`} data-section={category.id} className="mx-auto max-w-5xl scroll-mt-28 px-4 pt-8">
-      <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-[22px] font-bold">{category.name}</h2>
-        <span className="text-[13px] text-muted">{products.length} מוצרים</span>
-      </div>
-      {lead}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {products.map((p) => (
-          <ProductCard key={p.id} product={p} />
-        ))}
-      </div>
-    </section>
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {products.map((p) => (
+        <ProductCard key={p.id} product={p} />
+      ))}
+    </div>
   )
-})
+}
 
 export function BagBuilderCard({ onOpen }) {
   return (
-    <button type="button" onClick={onOpen} className="card mb-3 flex w-full items-center gap-4 p-3 text-right">
-      <div className="grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-tile">
-        <ProductArt
-          product={{ id: 'bag-card', name: 'שקית חמצוצים', art: { shape: 'gummy', c1: '#E5212B', c2: '#7CCB2B', label: '5 / 10 ₪' } }}
-          className="h-14 w-12"
-        />
+    <button type="button" onClick={onOpen} className="mb-3 flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right shadow-[0_6px_24px_-14px_rgba(0,0,0,.5)]">
+      <div className="h-[72px] w-[92px] shrink-0 overflow-hidden rounded-2xl bg-tile">
+        <img src="/media/cat-sour.jpg" alt="" className="h-full w-full object-cover" loading="lazy" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[16px] font-semibold">הרכב שקית חמצוצים</p>
+        <p className="text-[17px] font-extrabold">הרכב שקית חמצוצים</p>
         <p className="mt-0.5 text-[13px] text-muted">בוחרים גודל (5 או 10 ₪) ואת הסוגים לערבוב</p>
       </div>
-      <ChevronLeft size={20} className="shrink-0 text-muted" />
+      <ChevronLeft size={20} className="shrink-0 text-[#9A9A9A]" />
     </button>
   )
 }

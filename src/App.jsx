@@ -29,7 +29,7 @@ function Routes() {
       </Suspense>
     )
   }
-  return <Storefront />
+  return <Storefront path={path} />
 }
 
 export function App() {

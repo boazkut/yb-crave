@@ -1,21 +1,9 @@
-import { memo, useState } from 'react'
+import { memo } from 'react'
 import { inkOn, shade } from '../lib/color.js'
 
 /**
- * ציור אריזה מובנה לכל מוצר — כך שהאתר נראה מעוצב גם לפני שמעלים תמונות אמיתיות.
- * אם יש imageUrl (או קובץ ב-src/assets/products/<id>.png) — מוצגת התמונה האמיתית.
+ * ציור אריזה מובנה — מוצג רק כשאין עדיין תמונה אמיתית למוצר (ראו ProductImage).
  */
-
-const bundled = import.meta.glob('../assets/products/*.{png,webp,jpg,jpeg,avif}', {
-  eager: true,
-  query: '?url',
-  import: 'default',
-})
-const BUNDLED = Object.fromEntries(
-  Object.entries(bundled).map(([path, url]) => [path.split('/').pop().replace(/\.\w+$/, ''), url]),
-)
-
-export const imageFor = (product) => product?.imageUrl || BUNDLED[product?.id] || ''
 
 const FONT = "'Heebo Variable', Heebo, sans-serif"
 const RAINBOW = ['#E5212B', '#FF7A1A', '#FFD23F', '#7CCB2B', '#5B7CFF']
@@ -250,32 +238,10 @@ const shapes = {
 }
 
 function ProductArtBase({ product, className = '', dim = false }) {
-  const [broken, setBroken] = useState(false)
-  const src = imageFor(product)
   const art = product?.art || { shape: 'bag', c1: '#555', c2: '#F4EAD5', label: product?.name || '' }
-
-  if (src && !broken) {
-    return (
-      <img
-        src={src}
-        alt={product.name}
-        loading="lazy"
-        decoding="async"
-        draggable={false}
-        onError={() => setBroken(true)}
-        className={`${className} object-contain select-none ${dim ? 'grayscale opacity-60' : ''}`}
-      />
-    )
-  }
-
   const Shape = shapes[art.shape] || shapes.bag
   return (
-    <svg
-      viewBox="0 0 120 140"
-      className={`${className} select-none ${dim ? 'grayscale opacity-60' : ''}`}
-      role="img"
-      aria-label={product?.name}
-    >
+    <svg viewBox="0 0 120 140" className={`${className} select-none ${dim ? 'grayscale opacity-60' : ''}`} role="img" aria-label={product?.name}>
       <Shape c1={art.c1} c2={art.c2} label={art.label || product?.name} glyph={art.glyph} />
     </svg>
   )

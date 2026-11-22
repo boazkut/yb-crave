@@ -76,6 +76,18 @@
   }
 }
 
+@keyframes bg-flash {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.bg-flash {
+  animation: bg-flash 0.3s ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -17,6 +17,7 @@ const K = {
   admins: 'ybc2:admins',
   uid: 'ybc2:uid',
   session: 'ybc2:adminSession',
+  images: 'ybc2:productImages',
 }
 
 const DEMO_OWNER = { email: 'demo@yb-crave.app', name: 'מנהל ראשי (דמו)', role: 'owner', addedAt: 0 }
@@ -142,7 +143,20 @@ export function createLocalAdapter() {
       setProducts(list.some((p) => p.id === product.id) ? list.map((p) => (p.id === product.id ? { ...p, ...product } : p)) : [...list, product])
     },
     async deleteProduct(id) {
+      const imgs = readLS(K.images, {})
+      delete imgs[id]
+      writeLS(K.images, imgs)
       setProducts(getProducts().filter((p) => p.id !== id))
+    },
+    async getProductImage(id) {
+      return readLS(K.images, {})[id] || null
+    },
+    async setProductImage(id, dataUrl) {
+      const imgs = readLS(K.images, {})
+      if (dataUrl) imgs[id] = dataUrl
+      else delete imgs[id]
+      writeLS(K.images, imgs)
+      setProducts(getProducts().map((p) => (p.id === id ? { ...p, imageV: dataUrl ? Date.now() : 0 } : p)))
     },
     async seedCatalog() {
       const ids = new Set(getProducts().map((p) => p.id))

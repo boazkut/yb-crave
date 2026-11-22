@@ -5,6 +5,7 @@
  *   products/{id}             מוצרים (כולם קוראים, רק מנהלים כותבים)
  *   orders/{autoId}           הזמנות (לקוח רואה רק את שלו, לפי uid)
  *   paymentProofs/{orderId}   צילומי תשלום דחוסים (רק מנהלים רואים)
+ *   productImages/{id}        תמונות מוצרים שהועלו מהדשבורד (נטענות רק כשהמוצר מוצג)
  *   admins/{email}            רשימת המנהלים המורשים
  *   meta/settings             הגדרות החנות
  *   meta/counter              מונה מספרי הזמנות
@@ -198,7 +199,21 @@ export function createFirebaseAdapter() {
       await setDoc(doc(db, 'products', product.id), clean(product), { merge: true })
     },
     async deleteProduct(id) {
-      await deleteDoc(doc(db, 'products', id))
+      const b = writeBatch(db)
+      b.delete(doc(db, 'productImages', id))
+      b.delete(doc(db, 'products', id))
+      await b.commit()
+    },
+    async getProductImage(id) {
+      const s = await getDoc(doc(db, 'productImages', id))
+      return s.exists() ? s.data().dataUrl : null
+    },
+    async setProductImage(id, dataUrl) {
+      const b = writeBatch(db)
+      if (dataUrl) b.set(doc(db, 'productImages', id), { dataUrl, updatedAt: Date.now() })
+      else b.delete(doc(db, 'productImages', id))
+      b.set(doc(db, 'products', id), { imageV: dataUrl ? Date.now() : 0 }, { merge: true })
+      await b.commit()
     },
     async seedCatalog() {
       const s = await getDocs(collection(db, 'products'))

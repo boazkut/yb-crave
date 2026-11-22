@@ -1,108 +1,161 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
+import { Search, X } from 'lucide-react'
 import { useData } from './state/DataContext.jsx'
 import { useUI } from './state/UIContext.jsx'
-import { TopBar } from './components/TopBar.jsx'
-import { Hero } from './components/Hero.jsx'
-import { CategoryNav, CategorySection, BagBuilderCard } from './components/Catalog.jsx'
+import { Logo, StoreStatus } from './components/TopBar.jsx'
+import { BackgroundVideo } from './components/BackgroundVideo.jsx'
+import { BagBuilderCard, CategoryCard, CategoryHeader, ProductGrid, lookOf } from './components/Catalog.jsx'
 import { Toasts } from './components/Overlays.jsx'
 import { CheckoutSheet } from './features/Checkout.jsx'
 import { BagBuilder, ComboBuilder } from './features/Builders.jsx'
 import { CartBar, OrderStatus } from './features/OrderStatus.jsx'
+import { navigate } from './lib/router.js'
 
 const STOCK_ORDER = { in: 0, low: 1, out: 2 }
+const sortProducts = (list) =>
+  [...list].sort((a, b) => STOCK_ORDER[a.stock || 'in'] - STOCK_ORDER[b.stock || 'in'] || (a.sort ?? 0) - (b.sort ?? 0))
 
-export function Storefront() {
-  const { products, categories, settings } = useData()
-  const ui = useUI()
+function Home({ byCategory }) {
+  const { categories, products, settings } = useData()
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [budget, setBudget] = useState(null)
-  const [active, setActive] = useState(categories[0]?.id)
-  const refs = useRef({})
-
-  const grouped = useMemo(() => {
-    const q = query.trim()
-    const match = (p) => (!q || p.name.includes(q)) && (!budget || (p.price <= budget && p.stock !== 'out'))
-    const byCat = {}
-    for (const c of categories) {
-      byCat[c.id] = products
-        .filter((p) => p.category === c.id && match(p))
-        .sort((a, b) => STOCK_ORDER[a.stock || 'in'] - STOCK_ORDER[b.stock || 'in'] || (a.sort ?? 0) - (b.sort ?? 0))
-    }
-    return byCat
-  }, [products, categories, query, budget])
-
-  const filtering = Boolean(query.trim() || budget)
-  const visible = categories.filter((c) => grouped[c.id]?.length || (!filtering && c.id === 'sour'))
-
+  const inputRef = useRef(null)
   useEffect(() => {
-    const obs = new IntersectionObserver(
-      (entries) => entries.forEach((e) => e.isIntersecting && setActive(e.target.dataset.section)),
-      { rootMargin: '-30% 0px -60% 0px' },
-    )
-    Object.values(refs.current).forEach((el) => el && obs.observe(el))
-    return () => obs.disconnect()
-  }, [visible.length, filtering])
+    if (searchOpen) inputRef.current?.focus()
+  }, [searchOpen])
 
-  const jump = (id) => document.getElementById(`cat-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  const sheet = ui.sheet
+  const q = query.trim()
+  const results = useMemo(() => (q ? sortProducts(products.filter((p) => p.name.includes(q))) : []), [products, q])
 
   return (
-    <div className="pb-40">
-      <TopBar searchOpen={searchOpen} setSearchOpen={setSearchOpen} query={query} setQuery={setQuery} />
-      {!filtering && <Hero />}
-      <CategoryNav categories={visible.length ? visible : categories} active={active} onJump={jump} budget={budget} setBudget={setBudget} />
+    <>
+      <header className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 pt-4">
+        <div className="flex items-center gap-3">
+          <Logo light />
+          <StoreStatus pill />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (searchOpen) setQuery('')
+            setSearchOpen(!searchOpen)
+          }}
+          className="grid h-10 w-10 place-items-center rounded-full bg-white/90 text-ink"
+          aria-label={searchOpen ? 'סגירת חיפוש' : 'חיפוש'}
+          aria-expanded={searchOpen}
+        >
+          {searchOpen ? <X size={18} /> : <Search size={18} />}
+        </button>
+      </header>
 
-      <main>
-        {filtering && (
-          <div className="mx-auto flex max-w-5xl items-center justify-between px-4 pt-5 text-sm">
-            <span className="text-muted">
-              {visible.reduce((s, c) => s + grouped[c.id].length, 0)} מוצרים
-              {budget ? ` עד ${budget} ₪` : ''}
-              {query.trim() ? ` עבור "${query.trim()}"` : ''}
-            </span>
-            <button
-              type="button"
-              className="font-medium underline underline-offset-4"
-              onClick={() => {
-                setQuery('')
-                setBudget(null)
-                setSearchOpen(false)
-              }}
-            >
-              ניקוי
-            </button>
+      {searchOpen && (
+        <div className="relative mx-auto mt-3 max-w-5xl px-4">
+          <Search size={18} className="pointer-events-none absolute right-7 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="חיפוש מוצר"
+            className="field border-transparent pr-10"
+            enterKeyHint="search"
+            aria-label="חיפוש מוצר"
+          />
+        </div>
+      )}
+
+      {q ? (
+        <main className="mx-auto max-w-5xl px-4 pt-5">
+          <p className="mb-3 text-sm font-medium text-white">
+            {results.length ? `${results.length} תוצאות` : 'לא מצאנו מוצר כזה'}
+          </p>
+          <ProductGrid products={results} />
+        </main>
+      ) : (
+        <>
+          <section className="mx-auto max-w-5xl px-5 pb-8 pt-12 text-white sm:pt-20">
+            <h1 className="text-[40px] font-extrabold leading-[1.05] tracking-tight [text-shadow:0_2px_18px_rgba(0,0,0,.35)] sm:text-6xl">
+              צנח הסוכר?
+              <br />
+              אנחנו בדרך.
+            </h1>
+            <p className="mt-3 max-w-[22rem] text-[16px] leading-relaxed text-white/85">
+              נשנושים, שתייה קרה וציוד לשיעור. מזמינים כאן ומקבלים עד החדר.
+            </p>
+          </section>
+          <main className="mx-auto max-w-5xl space-y-3 px-4">
+            {categories.map((c, i) => (
+              <CategoryCard key={c.id} category={c} index={i} products={byCategory[c.id] || []} />
+            ))}
+          </main>
+          <footer className="mx-auto mt-8 max-w-5xl px-5 text-[13px] text-white/70">
+            {settings.storeOpen ? 'תשלום ב-PayBox, ב-Bit או במזומן.' : 'החנות סגורה כרגע, אפשר להסתכל בינתיים.'}
+          </footer>
+        </>
+      )}
+    </>
+  )
+}
+
+function CategoryView({ category, items }) {
+  const { categories } = useData()
+  const ui = useUI()
+  const [budget, setBudget] = useState(null)
+  useEffect(() => setBudget(null), [category.id])
+  const shown = budget ? items.filter((p) => p.price <= budget && p.stock !== 'out') : items
+
+  return (
+    <>
+      <CategoryHeader categories={categories} current={category} budget={budget} setBudget={setBudget} />
+      <main className="mx-auto max-w-5xl px-3 pt-4">
+        {category.id === 'sour' && !budget && <BagBuilderCard onOpen={() => ui.openSheet('bag')} />}
+        {shown.length ? (
+          <ProductGrid products={shown} />
+        ) : (
+          <div className="rounded-[22px] bg-white p-6 text-center text-sm text-muted">
+            {budget ? `אין כאן מוצרים עד ${budget} ₪.` : 'עוד אין מוצרים בקטגוריה הזאת.'}
           </div>
         )}
-        {filtering && visible.length === 0 && <p className="px-4 pt-16 text-center text-muted">לא מצאנו מוצרים שמתאימים.</p>}
-
-        {visible.map((c) => (
-          <CategorySection
-            key={c.id}
-            ref={(el) => (refs.current[c.id] = el)}
-            category={c}
-            products={grouped[c.id] || []}
-            lead={c.id === 'sour' && !filtering ? <BagBuilderCard onOpen={() => ui.openSheet('bag')} /> : null}
-          />
-        ))}
       </main>
+    </>
+  )
+}
 
-      <footer className="mx-auto mt-14 max-w-5xl px-4 text-[13px] text-muted">
-        <div className="border-t border-line pt-5">
-          Y&amp;B CRAVE. העברות ל-{settings.transferPhone}.
-        </div>
-      </footer>
+export function Storefront({ path }) {
+  const { products, categories } = useData()
+  const ui = useUI()
+  const catId = path.startsWith('/c/') ? decodeURIComponent(path.slice(3)) : null
+  const index = categories.findIndex((c) => c.id === catId)
+  const current = index >= 0 ? categories[index] : null
+
+  useEffect(() => {
+    if (catId && !current) navigate('/', { replace: true })
+  }, [catId, current])
+
+  const byCategory = useMemo(() => {
+    const m = {}
+    for (const p of products) (m[p.category] ||= []).push(p)
+    for (const k of Object.keys(m)) m[k] = sortProducts(m[k])
+    return m
+  }, [products])
+
+  const sheet = ui.sheet
+  return (
+    <>
+      <BackgroundVideo base={current ? lookOf(current, index).video : 'drinks'} />
+      <div className="relative z-10 min-h-dvh pb-44">
+        {current ? <CategoryView category={current} items={byCategory[current.id] || []} /> : <Home byCategory={byCategory} />}
+      </div>
 
       <CartBar />
       <Toasts />
-
       <AnimatePresence>
         {sheet?.name === 'checkout' && <CheckoutSheet key="checkout" onClose={ui.closeSheet} />}
         {sheet?.name === 'bag' && <BagBuilder key="bag" onClose={ui.closeSheet} />}
         {sheet?.name === 'combo' && <ComboBuilder key={`combo-${sheet.payload}`} productId={sheet.payload} onClose={ui.closeSheet} />}
         {sheet?.name === 'status' && <OrderStatus key={`status-${sheet.payload}`} orderId={sheet.payload} onClose={ui.closeSheet} />}
       </AnimatePresence>
-    </div>
+    </>
   )
 }

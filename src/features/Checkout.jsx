@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Banknote, Check, Copy, ExternalLink, ImagePlus, LoaderCircle, Smartphone, Trash2, Wallet } from 'lucide-react'
+import { Banknote, Check, Copy, ImagePlus, LoaderCircle, Smartphone, Trash2, Wallet } from 'lucide-react'
 import { Sheet, Stepper } from '../components/Overlays.jsx'
-import { ProductArt } from '../components/ProductArt.jsx'
+import { ProductImage } from '../components/ProductImage.jsx'
 import { useCart } from '../state/CartContext.jsx'
 import { useUI } from '../state/UIContext.jsx'
 import { useData } from '../state/DataContext.jsx'
@@ -11,6 +11,8 @@ import { storage } from '../services/storageService.js'
 import { normalizeIsraeliPhone } from '../lib/shop.js'
 import { compressImage } from '../lib/imageCompress.js'
 import { copyText, dateKey, ils } from '../lib/utils.js'
+import { openPayApp } from '../lib/payApps.js'
+import { celebrate } from '../lib/celebrate.js'
 
 const METHODS = [
   { id: 'paybox', label: 'PayBox', Icon: Wallet },
@@ -59,10 +61,8 @@ function ProofUpload({ proof, setProof, required, error }) {
   }
 
   return (
-    <div className="mt-4">
-      <span className="label">
-        צילום מסך של אישור ההעברה {required ? '' : <span className="font-normal text-muted">(לא חובה, מזרז את האישור)</span>}
-      </span>
+    <div className="mt-2">
+      {!required && <span className="hint mb-2 mt-0 block">לא חובה, אבל זה מזרז את האישור</span>}
       <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
       {proof ? (
         <div className="flex items-center gap-3 rounded-xl border border-line bg-white p-2">
@@ -98,7 +98,7 @@ function ProofUpload({ proof, setProof, required, error }) {
 
 function CartStep({ onNext, onClose }) {
   const cart = useCart()
-  const { settings } = useData()
+  const { settings, byId } = useData()
 
   if (!cart.lines.length) {
     return (
@@ -117,9 +117,11 @@ function CartStep({ onNext, onClose }) {
       <ul className="divide-y divide-line">
         {cart.lines.map((l) => (
           <li key={l.key} className="flex items-center gap-3 py-3">
-            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-tile">
-              <ProductArt product={{ id: l.productId, name: l.name, art: l.art, imageUrl: l.imageUrl }} className="h-12 w-10" />
-            </div>
+            <ProductImage
+              product={byId[l.productId] || { id: l.productId, name: l.name, art: l.art, imageUrl: l.imageUrl }}
+              className="h-14 w-14 shrink-0 rounded-xl bg-tile"
+              artClass="h-12 w-10"
+            />
             <div className="min-w-0 flex-1">
               <p className="text-[15px] font-medium leading-tight">{l.name}</p>
               {l.details?.length > 0 && <p className="mt-0.5 text-[12px] leading-snug text-muted">{l.details.join(', ')}</p>}
@@ -157,6 +159,7 @@ function DetailsStep({ onBack, onDone }) {
   const [changeFor, setChangeFor] = useState('בדיוק')
   const [errors, setErrors] = useState({})
   const [sending, setSending] = useState(false)
+  const [opened, setOpened] = useState(false)
 
   const total = cart.total
   const transferPhone = settings.transferPhone
@@ -202,6 +205,7 @@ function DetailsStep({ onBack, onDone }) {
       setProfile({ name: name.trim(), phone: cleanPhone, room: room.trim() })
       setMyOrders((list) => [{ id: saved.id, number: saved.number, createdAt: saved.createdAt }, ...(list || [])].slice(0, 15))
       cart.clear()
+      celebrate()
       onDone(saved.id)
     } catch (err) {
       console.error(err)
@@ -318,18 +322,24 @@ function DetailsStep({ onBack, onDone }) {
                     </p>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <CopyButton text={transferPhone.replace(/\D/g, '')} label="העתקת מספר" />
-                  <a
-                    href={method === 'paybox' ? settings.payboxLink : settings.bitLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn-secondary px-3 py-2.5 text-sm"
-                  >
-                    <ExternalLink size={16} />
-                    {method === 'paybox' ? 'פתיחת PayBox' : 'פתיחת Bit'}
-                  </a>
+                <p className="mt-4 text-[13px] font-semibold">1. משלמים</p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await copyText(transferPhone.replace(/\D/g, ''))
+                    ui.toast('המספר הועתק. מדביקים אותו באפליקציה ומעבירים ' + ils(total))
+                    setOpened(true)
+                    setTimeout(() => openPayApp(method, method === 'paybox' ? settings.payboxLink : settings.bitLink), 350)
+                  }}
+                  className="btn-primary mt-2 w-full py-3.5 text-base"
+                >
+                  {method === 'paybox' ? <Wallet size={18} /> : <Smartphone size={18} />}
+                  {method === 'paybox' ? 'פתיחת PayBox לתשלום' : 'פתיחת Bit לתשלום'}
+                </button>
+                <div className="mt-2 flex justify-center">
+                  <CopyButton text={transferPhone.replace(/\D/g, '')} label="רק להעתיק את המספר" />
                 </div>
+                <p className="mt-4 text-[13px] font-semibold">2. {opened ? 'חזרתם? ' : ''}מצרפים צילום של האישור</p>
                 <ProofUpload proof={proof} setProof={setProof} required={method === 'paybox'} error={errors.proof} />
               </>
             )}

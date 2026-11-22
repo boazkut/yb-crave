@@ -51,4 +51,4 @@ export async function compressImage(file, { maxSide = 1280, maxBytes = 300_000, 
 
 /** תמונת מוצר: קטנה, עם שקיפות (WebP כשנתמך) */
 export const compressProductImage = (file) =>
-  compressImage(file, { maxSide: 420, maxBytes: 60_000, type: 'image/webp' })
+  compressImage(file, { maxSide: 520, maxBytes: 70_000, type: 'image/webp' })
