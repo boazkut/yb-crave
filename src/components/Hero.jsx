@@ -1,71 +1,68 @@
-import { motion } from 'framer-motion'
-import { StatusBadge } from './StatusBadge.jsx'
-import { useUI } from '../state/UIContext.jsx'
-import { useCart } from '../state/CartContext.jsx'
+import { useRef } from 'react'
+import { motion, useReducedMotion, useScroll, useSpring, useTransform } from 'framer-motion'
 import { useData } from '../state/DataContext.jsx'
-import { useLocal, LS_KEYS } from '../state/useLocal.js'
-import { isAvailable } from '../lib/shop.js'
 
-export function Hero() {
-  const ui = useUI()
-  const cart = useCart()
-  const { byId } = useData()
-  const [lastOrder] = useLocal(LS_KEYS.lastOrder, null)
-
-  const reorder = () => {
-    const usable = (lastOrder?.lines || []).filter((l) => !l.productId || isAvailable(byId[l.productId]))
-    const missing = (lastOrder?.lines.length || 0) - usable.length
-    if (!usable.length) return ui.toast('כל מה שהזמנת בפעם הקודמת אזל כרגע 😬')
-    const fresh = usable.map((l) => (l.productId && byId[l.productId] ? { ...l, unitPrice: Number(byId[l.productId].price) } : l))
-    if (cart.lines.length) fresh.forEach((l) => cart.addCustom(l))
-    else cart.replaceAll(fresh)
-    ui.toast(missing ? `הרגיל שלך בעגלה (בלי ${missing} שאזלו)` : 'הרגיל שלך בעגלה ✓')
-    ui.openSheet('cart')
-  }
+/** פחית Y&B — מסתובבת ונעה בעדינות לפי הגלילה בתוך ה-Hero בלבד */
+function Can({ progress }) {
+  const reduce = useReducedMotion()
+  const p = useSpring(progress, { stiffness: 120, damping: 30, mass: 0.5 })
+  const rotate = useTransform(p, [0, 1], [-7, 9])
+  const y = useTransform(p, [0, 1], [0, 26])
+  const labelX = useTransform(p, [0, 1], ['0px', '-90px'])
 
   return (
-    <section className="relative z-[2] mx-auto max-w-6xl px-4 pb-6 pt-8 sm:pt-14">
-      <div className="max-w-[34rem]">
-        <motion.h1
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
-          className="display text-[clamp(3.1rem,15vw,6.6rem)] leading-[0.92] text-paper"
-        >
-          צנח הסוכר?
-        </motion.h1>
-        <motion.div
-          initial={{ opacity: 0, rotate: 0, scale: 0.9 }}
-          animate={{ opacity: 1, rotate: -3, scale: 1 }}
-          transition={{ delay: 0.18, type: 'spring', stiffness: 260, damping: 16 }}
-          className="mt-2 inline-block origin-right border-[3px] border-coal bg-cola px-3 pb-2 pt-1 shadow-[6px_6px_0_0_#0E0D0B]"
-        >
-          <span className="display block text-[clamp(2.5rem,12vw,5.2rem)] leading-[0.95] text-paper">אנחנו בדרך.</span>
+    <motion.div style={reduce ? undefined : { rotate, y }} className="relative mx-auto h-[190px] w-[104px] sm:h-[250px] sm:w-[136px]">
+      <div className="absolute inset-x-[6%] -bottom-3 h-4 rounded-[50%] bg-black/10 blur-md" />
+      <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: '18px / 10px', background: '#141414' }}>
+        <motion.div style={reduce ? undefined : { x: labelX }} className="absolute inset-y-0 right-[-90px] flex w-[300px] items-center justify-around" dir="ltr">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="text-[30px] font-extrabold leading-none text-[#FAF9F6] sm:text-[40px]"
+              style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+            >
+              Y&amp;B
+            </span>
+          ))}
         </motion.div>
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'linear-gradient(90deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 22%, rgba(255,255,255,.22) 34%, rgba(255,255,255,0) 48%, rgba(0,0,0,0) 70%, rgba(0,0,0,.5) 100%)',
+          }}
+        />
+        <div className="absolute inset-x-0 bottom-0 h-[7%] bg-[#2A2A2A]" />
+      </div>
+      <div className="absolute -top-[5px] left-[5%] h-[14px] w-[90%] rounded-[50%]" style={{ background: 'linear-gradient(180deg,#E9E7E2,#B4B0A8)' }} />
+      <div className="absolute -top-[1px] left-[38%] h-[5px] w-[24%] rounded-full bg-[#8E8A82]" />
+    </motion.div>
+  )
+}
 
-        <p className="mt-6 max-w-[26rem] text-[17px] font-medium leading-relaxed text-paper/80">
-          מזמינים מהטלפון, משלמים בביט, פייבוקס או מזומן, ומקבלים בהפסקה. בלי תור בקיוסק.
-        </p>
+export function Hero() {
+  const ref = useRef(null)
+  const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] })
+  const { settings } = useData()
 
-        <div className="mt-5 inline-block">
-          <StatusBadge />
+  return (
+    <section ref={ref} className="mx-auto max-w-5xl px-4 pb-6 pt-5 sm:pt-10">
+      <div className="card grid grid-cols-[1fr_auto] items-center gap-4 overflow-hidden px-5 py-7 sm:px-10 sm:py-12">
+        <div>
+          <h1 className="text-[32px] font-extrabold leading-[1.1] tracking-tight sm:text-5xl">
+            צנח הסוכר?
+            <br />
+            אנחנו בדרך.
+          </h1>
+          <p className="mt-3 max-w-[22rem] text-[15px] leading-relaxed text-muted sm:text-lg">
+            נשנושים, שתייה קרה וציוד לשיעור. מזמינים כאן ומקבלים עד החדר.
+          </p>
+          <p className="mt-4 text-[13px] text-muted">
+            {settings.storeOpen ? 'תשלום ב-PayBox, ב-Bit או במזומן' : 'החנות סגורה כרגע, אפשר להסתכל בינתיים'}
+          </p>
         </div>
-
-        <div className="mt-6 flex flex-wrap gap-2.5">
-          <a href="#cat-salty" className="btn-lime text-[17px]">
-            לתפריט
-          </a>
-          <button type="button" onClick={() => ui.openSheet('roulette')} className="btn-paper">
-            🎡 אין לי מושג מה בא לי
-          </button>
-          <button type="button" onClick={() => ui.openSheet('bag')} className="btn-ghost">
-            🍋 הרכב שקית חמצוצים
-          </button>
-          {lastOrder?.lines?.length > 0 && (
-            <button type="button" onClick={reorder} className="btn-ghost">
-              ↻ הזמן שוב את הרגיל שלי
-            </button>
-          )}
+        <div className="w-[112px] sm:w-[180px]">
+          <Can progress={scrollYProgress} />
         </div>
       </div>
     </section>

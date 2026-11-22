@@ -1,39 +1,91 @@
 rules_version = '2';
-// חוקי אבטחה ל-Firestore של Y&B CRAVE.
-// מדביקים את הקובץ הזה ב-Firebase Console → Firestore Database → Rules → Publish.
+// ============================================================
+//  חוקי האבטחה של Y&B CRAVE
+//  מדביקים ב-Firebase Console → Firestore Database → Rules → Publish
+//
+//  - כל לקוח (משתמש אנונימי) יכול ליצור הזמנה ולראות רק את ההזמנות שלו.
+//  - צילומי תשלום, טלפונים, רשימת הזמנות ועריכת מוצרים: רק מנהלים.
+//  - מנהל = משתמש עם אימייל מאומת שיש לו מסמך בקולקציה admins (מזהה המסמך = האימייל).
+//  - רק "מנהל ראשי" (role: owner) יכול להוסיף ולהסיר מנהלים.
+// ============================================================
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isAdmin() { return request.auth != null; }
 
-    // מוצרים: כולם קוראים. רק מנהל עורך.
-    // לקוחות יכולים רק לעדכן מונים (מלאי שירד, נמכרו, "תודיעו לי").
+    function signedIn() { return request.auth != null; }
+    function myEmail() { return request.auth.token.email; }
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/admins/$(myEmail()));
+    }
+    function isOwner() {
+      return isAdmin()
+        && get(/databases/$(database)/documents/admins/$(myEmail())).data.role == 'owner';
+    }
+
+    // ---------- מוצרים והגדרות ----------
     match /products/{id} {
       allow read: if true;
       allow write: if isAdmin();
-      allow update: if request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['qty', 'soldCount', 'weekSold', 'notifyCount']);
     }
-
-    // הזמנות: כל אחד יכול ליצור ולצפות בהזמנה לפי המזהה שלה (מעקב). רק מנהל רואה רשימה ומעדכן.
-    match /orders/{id} {
-      allow create: if request.resource.data.status == 'new'
-        && request.resource.data.paid == false
-        && request.resource.data.lines.size() > 0
-        && request.resource.data.lines.size() < 80;
-      allow get: if true;
-      allow list, update, delete: if isAdmin();
-    }
-
     match /meta/settings {
       allow read: if true;
       allow write: if isAdmin();
     }
-    match /meta/votes {
-      allow read, write: if true;
-    }
+
+    // ---------- מונה מספרי הזמנות (עולה רק ב-1) ----------
     match /meta/counter {
-      allow read: if true;
-      allow write: if request.resource.data.value is int;
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.value == 101;
+      allow update: if signedIn() && request.resource.data.value == resource.data.value + 1;
+    }
+
+    // ---------- הזמנות ----------
+    match /orders/{orderId} {
+      // יצירה: רק בשם עצמך, בסטטוס התחלתי, לא "שולם"
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.paid == false
+        && request.resource.data.rejectReason == ''
+        && (
+          (request.resource.data.payment.method in ['paybox', 'bit'] && request.resource.data.status == 'awaiting_payment')
+          || (request.resource.data.payment.method == 'cash' && request.resource.data.status == 'preparing')
+        )
+        && (request.resource.data.payment.method != 'paybox' || request.resource.data.payment.hasProof == true)
+        && request.resource.data.lines.size() > 0
+        && request.resource.data.lines.size() <= 60
+        && request.resource.data.customer.name is string
+        && request.resource.data.customer.phone is string
+        && request.resource.data.customer.room is string;
+
+      // צפייה: הלקוח רואה רק הזמנה שהוא יצר. מנהלים רואים הכל.
+      allow get: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow list: if isAdmin();
+
+      // עדכון סטטוס, אישור/דחיית תשלום ומחיקה: מנהלים בלבד
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------- צילומי תשלום ----------
+    match /paymentProofs/{orderId} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/orders/$(orderId)).data.uid == request.auth.uid
+        && request.resource.data.dataUrl is string
+        && request.resource.data.dataUrl.size() < 700000;
+      allow read, delete: if isAdmin();
+      allow update: if false;
+    }
+
+    // ---------- מנהלים והרשאות ----------
+    match /admins/{email} {
+      // כל משתמש מחובר יכול לבדוק רק את עצמו; מנהלים רואים את כל הרשימה
+      allow read: if isAdmin() || (signedIn() && myEmail() == email);
+      // רק מנהל ראשי מוסיף/מסיר, ואי אפשר לשנות או למחוק את עצמך
+      allow create, update: if isOwner()
+        && email != myEmail()
+        && request.resource.data.role in ['owner', 'admin'];
+      allow delete: if isOwner() && email != myEmail();
     }
   }
 }

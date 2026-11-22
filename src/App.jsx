@@ -11,7 +11,9 @@ const AdminApp = lazy(() => import('./admin/AdminApp.jsx'))
 function Splash() {
   return (
     <div className="grid min-h-dvh place-items-center">
-      <p className="display animate-pulse text-3xl text-paper/60">Y&amp;B CRAVE</p>
+      <p className="text-2xl font-extrabold text-[#C9C9C9]" dir="ltr">
+        Y&amp;B
+      </p>
     </div>
   )
 }

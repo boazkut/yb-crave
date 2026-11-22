@@ -1,7 +1,6 @@
 /**
  * storageService — שכבת הנתונים היחידה של האפליקציה.
- * כל הקומפוננטות מדברות רק איתה, ולכן המעבר מ-LocalStorage ל-Firebase
- * הוא רק עניין של מילוי firebaseConfig — בלי לגעת בשום קוד אחר.
+ * בלי הגדרות Firebase האתר רץ במצב דמו (LocalStorage), ועם הגדרות הוא עובר לבד ל-Firebase.
  */
 import { isFirebaseConfigured } from '../config.js'
 import { createLocalAdapter } from './localAdapter.js'
@@ -17,7 +16,7 @@ export function initStorage() {
         const { createFirebaseAdapter } = await import('./firebaseAdapter.js')
         adapter = createFirebaseAdapter()
       } catch (err) {
-        console.error('Firebase לא נטען, עוברים למצב מקומי', err)
+        console.error('Firebase לא נטען, עוברים למצב דמו', err)
         adapter = createLocalAdapter()
       }
     } else {

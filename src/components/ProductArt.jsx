@@ -17,7 +17,7 @@ const BUNDLED = Object.fromEntries(
 
 export const imageFor = (product) => product?.imageUrl || BUNDLED[product?.id] || ''
 
-const FONT = "'Secular One', 'Rubik Variable', sans-serif"
+const FONT = "'Heebo Variable', Heebo, sans-serif"
 const RAINBOW = ['#E5212B', '#FF7A1A', '#FFD23F', '#7CCB2B', '#5B7CFF']
 
 const fitSize = (label, max = 22) => {
@@ -37,6 +37,7 @@ const Label = ({ x = 60, y = 74, text, color, size = 22, rotate = 0 }) => (
     textAnchor="middle"
     dominantBaseline="central"
     fontFamily={FONT}
+    fontWeight={800}
     fontSize={fitSize(text, size)}
     fill={color}
     transform={rotate ? `rotate(${rotate} ${x} ${y})` : undefined}
@@ -217,22 +218,19 @@ const shapes = {
       <rect x={34} y={44} width={5} height={78} rx={2.5} fill="#fff" opacity={0.25} />
     </>
   ),
-  supply: ({ c1, c2, label, glyph }) => (
-    <>
-      <circle cx={60} cy={58} r={44} fill={c1} stroke={c2} strokeWidth={4} />
-      <circle cx={60} cy={58} r={36} fill="none" stroke={c2} strokeWidth={1.5} strokeDasharray="3 5" />
-      <text x={60} y={60} textAnchor="middle" dominantBaseline="central" fontSize={40}>
-        {glyph || '✏️'}
-      </text>
-      <Sticker text={label} y={120} />
-    </>
+  supply: ({ c1, c2, label }) => (
+    <g transform="rotate(-6 60 70)">
+      <path d="M30 24 L90 24 L102 40 L102 118 L18 118 L18 40 Z" fill={c1} stroke={shade(c1 === '#F4EAD5' ? '#C9C2B0' : c1, -0.15)} strokeWidth={2} />
+      <circle cx={60} cy={38} r={6} fill="#F4F4F2" stroke={shade(c1, -0.25)} strokeWidth={2} />
+      <Label x={60} y={80} text={label} color={c2} size={26} />
+    </g>
   ),
   mystery: ({ c1, c2, label }) => (
     <>
       <path d="M24 34 L96 34 L104 128 L16 128 Z" fill={c1} />
       <path d="M24 34 L36 18 L84 18 L96 34 Z" fill={shade(c1, -0.2)} />
       <rect x={44} y={26} width={32} height={12} fill="#F4EAD5" opacity={0.9} transform="rotate(-6 60 32)" />
-      <text x={60} y={84} textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontSize={60} fill={c2}>
+      <text x={60} y={84} textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontWeight={800} fontSize={60} fill={c2}>
         ?
       </text>
       <Sticker text={`${label} ₪`} y={118} tilt={5} />

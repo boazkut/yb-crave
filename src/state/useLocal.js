@@ -3,7 +3,7 @@ import { readLS, writeLS } from '../lib/utils.js'
 
 /**
  * state ששמור בטלפון של הלקוח ומסונכרן בין כל הקומפוננטות שמשתמשות באותו מפתח.
- * משמש לכרטיסיית הניקובים, "הרגיל שלי", התפריט הסודי, הצבעות ו"תודיעו לי".
+ * משמש לרשימת ההזמנות של הטלפון הזה ולפרטי הלקוח השמורים.
  */
 const EVT = 'ybc:local'
 
@@ -41,11 +41,6 @@ export function useLocal(key, initial) {
 }
 
 export const LS_KEYS = {
-  myOrders: 'ybc:myOrders',
-  lastOrder: 'ybc:lastOrder',
-  loyalty: 'ybc:loyalty',
-  secret: 'ybc:secretUnlocked',
-  voted: 'ybc:voted',
-  notify: 'ybc:notify',
-  profile: 'ybc:profile',
+  myOrders: 'ybc2:myOrders',
+  profile: 'ybc2:profile',
 }

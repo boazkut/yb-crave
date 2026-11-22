@@ -1,86 +1,101 @@
 /**
- * מתאם נתונים מקומי (LocalStorage).
- * עובד מיידית בלי שום הגדרה — מושלם לדמו ולבדיקות.
- * מסתנכרן בין לשוניות באותו מכשיר, אבל לא בין טלפונים שונים (לזה יש את Firebase).
+ * מצב דמו (LocalStorage): עובד מיד בלי שום חיבור, כדי לבדוק את כל המסכים.
+ * הנתונים נשמרים רק בדפדפן הזה. לסנכרון אמיתי בין טלפונים מחברים Firebase.
  */
 import { SEED_PRODUCTS, CATALOG_VERSION } from '../data/catalog.js'
-import { DEFAULT_SETTINGS, DEFAULT_VOTES, withSettingsDefaults } from './defaults.js'
+import { DEFAULT_SETTINGS, withSettingsDefaults } from './defaults.js'
 import { readLS, writeLS, uid, sha256 } from '../lib/utils.js'
 import { SITE_CONFIG } from '../config.js'
 
 const K = {
-  products: 'ybc:products',
-  settings: 'ybc:settings',
-  orders: 'ybc:orders',
-  votes: 'ybc:votes',
-  counter: 'ybc:counter',
-  version: 'ybc:catalogVersion',
-  admin: 'ybc:adminSession',
+  products: 'ybc2:products',
+  settings: 'ybc2:settings',
+  orders: 'ybc2:orders',
+  proofs: 'ybc2:proofs',
+  counter: 'ybc2:counter',
+  version: 'ybc2:catalogVersion',
+  admins: 'ybc2:admins',
+  uid: 'ybc2:uid',
+  session: 'ybc2:adminSession',
 }
+
+const DEMO_OWNER = { email: 'demo@yb-crave.app', name: 'מנהל ראשי (דמו)', role: 'owner', addedAt: 0 }
 
 const listeners = new Map()
-const on = (key, cb) => {
-  if (!listeners.has(key)) listeners.set(key, new Set())
-  listeners.get(key).add(cb)
-  return () => listeners.get(key)?.delete(cb)
+const on = (topic, cb) => {
+  if (!listeners.has(topic)) listeners.set(topic, new Set())
+  listeners.get(topic).add(cb)
+  return () => listeners.get(topic)?.delete(cb)
 }
-const emit = (key) => listeners.get(key)?.forEach((cb) => cb())
-
-const keyToTopic = Object.fromEntries(Object.entries(K).map(([topic, k]) => [k, topic]))
+const emit = (topic) => listeners.get(topic)?.forEach((cb) => cb())
+const topicOfKey = Object.fromEntries(Object.entries(K).map(([t, k]) => [k, t]))
 
 export function createLocalAdapter() {
-  const adminListeners = new Set()
-
   const getProducts = () => readLS(K.products, [])
-  const setProducts = (list) => {
-    writeLS(K.products, list)
+  const setProducts = (l) => {
+    writeLS(K.products, l)
     emit('products')
   }
-  const getSettings = () => withSettingsDefaults(readLS(K.settings, null))
   const getOrders = () => readLS(K.orders, [])
-  const setOrders = (list) => {
-    writeLS(K.orders, list)
+  const setOrders = (l) => {
+    writeLS(K.orders, l)
     emit('orders')
   }
+  const getProofs = () => readLS(K.proofs, {})
+  const getAdmins = () => readLS(K.admins, [DEMO_OWNER])
+  const setAdmins = (l) => {
+    writeLS(K.admins, l)
+    emit('admins')
+  }
+  const sessionState = () =>
+    sessionStorage.getItem(K.session) === '1'
+      ? { status: 'admin', email: DEMO_OWNER.email, name: DEMO_OWNER.name, role: 'owner' }
+      : { status: 'signedOut' }
 
   return {
-    mode: 'local',
+    mode: 'demo',
 
     async init() {
       const existing = readLS(K.products, null)
-      if (!existing) {
-        writeLS(K.products, SEED_PRODUCTS)
-      } else if (readLS(K.version, 0) < CATALOG_VERSION) {
+      if (!existing) writeLS(K.products, SEED_PRODUCTS)
+      else if (readLS(K.version, 0) < CATALOG_VERSION) {
         const ids = new Set(existing.map((p) => p.id))
         writeLS(K.products, [...existing, ...SEED_PRODUCTS.filter((p) => !ids.has(p.id))])
       }
       writeLS(K.version, CATALOG_VERSION)
       if (!readLS(K.settings, null)) writeLS(K.settings, DEFAULT_SETTINGS)
-      window.addEventListener('storage', (e) => {
-        const topic = keyToTopic[e.key]
-        if (topic) emit(topic)
-      })
+      window.addEventListener('storage', (e) => topicOfKey[e.key] && emit(topicOfKey[e.key]))
     },
 
+    // ---------- קטלוג והגדרות ----------
     subscribeProducts(cb) {
       const run = () => cb(getProducts())
       run()
       return on('products', run)
     },
     subscribeSettings(cb) {
-      const run = () => cb(getSettings())
+      const run = () => cb(withSettingsDefaults(readLS(K.settings, null)))
       run()
       return on('settings', run)
     },
-    subscribeVotes(cb) {
-      const run = () => cb(readLS(K.votes, DEFAULT_VOTES))
-      run()
-      return on('votes', run)
+
+    // ---------- לקוח ----------
+    async myUid() {
+      let id = readLS(K.uid, null)
+      if (!id) {
+        id = uid('u_')
+        writeLS(K.uid, id)
+      }
+      return id
     },
-    subscribeOrders(cb) {
-      const run = () => cb([...getOrders()].sort((a, b) => b.createdAt - a.createdAt))
-      run()
-      return on('orders', run)
+    async createOrder(order, proofDataUrl) {
+      const number = readLS(K.counter, 100) + 1
+      writeLS(K.counter, number)
+      const id = uid('o_')
+      const saved = { ...order, id, number }
+      if (proofDataUrl) writeLS(K.proofs, { ...getProofs(), [id]: proofDataUrl })
+      setOrders([...getOrders(), saved])
+      return saved
     },
     subscribeOrder(id, cb) {
       const run = () => cb(getOrders().find((o) => o.id === id) || null)
@@ -88,114 +103,83 @@ export function createLocalAdapter() {
       return on('orders', run)
     },
 
-    async createOrder(order) {
-      const number = readLS(K.counter, 100) + 1
-      writeLS(K.counter, number)
-      const saved = { ...order, id: uid('o_'), number }
-      setOrders([...getOrders(), saved])
-      // עדכון מלאי ומכירות
-      const byId = {}
-      for (const l of order.lines) if (l.productId) byId[l.productId] = (byId[l.productId] || 0) + l.qty
-      setProducts(
-        getProducts().map((p) =>
-          byId[p.id]
-            ? {
-                ...p,
-                qty: Math.max(0, (p.qty ?? 0) - byId[p.id]),
-                soldCount: (p.soldCount || 0) + byId[p.id],
-                weekSold: (p.weekSold || 0) + byId[p.id],
-              }
-            : p,
-        ),
-      )
-      return saved
+    // ---------- מנהלים: הזמנות ----------
+    subscribeOrders(cb) {
+      const run = () => cb([...getOrders()].sort((a, b) => b.createdAt - a.createdAt))
+      run()
+      return on('orders', run)
+    },
+    async getProof(orderId) {
+      return getProofs()[orderId] || null
     },
     async updateOrder(id, patch) {
-      setOrders(getOrders().map((o) => (o.id === id ? { ...o, ...patch } : o)))
+      setOrders(getOrders().map((o) => (o.id === id ? { ...o, ...patch, statusAt: Date.now() } : o)))
     },
     async deleteOrder(id) {
+      const proofs = getProofs()
+      delete proofs[id]
+      writeLS(K.proofs, proofs)
       setOrders(getOrders().filter((o) => o.id !== id))
     },
+    async purgeProofs(olderThanDays = 7) {
+      const cutoff = Date.now() - olderThanDays * 86400000
+      const proofs = getProofs()
+      let n = 0
+      for (const o of getOrders()) {
+        if (proofs[o.id] && ['delivered', 'rejected', 'cancelled'].includes(o.status) && o.createdAt < cutoff) {
+          delete proofs[o.id]
+          n++
+        }
+      }
+      writeLS(K.proofs, proofs)
+      setOrders(getOrders().map((o) => (proofs[o.id] ? o : { ...o, payment: { ...o.payment, hasProof: false } })))
+      return n
+    },
 
+    // ---------- מנהלים: מוצרים והגדרות ----------
     async saveProduct(product) {
       const list = getProducts()
-      const exists = list.some((p) => p.id === product.id)
-      setProducts(exists ? list.map((p) => (p.id === product.id ? { ...p, ...product } : p)) : [...list, product])
+      setProducts(list.some((p) => p.id === product.id) ? list.map((p) => (p.id === product.id ? { ...p, ...product } : p)) : [...list, product])
     },
     async deleteProduct(id) {
       setProducts(getProducts().filter((p) => p.id !== id))
     },
-    async seedCatalog(mode = 'missing') {
-      if (mode === 'reset') return setProducts(SEED_PRODUCTS)
+    async seedCatalog() {
       const ids = new Set(getProducts().map((p) => p.id))
       setProducts([...getProducts(), ...SEED_PRODUCTS.filter((p) => !ids.has(p.id))])
     },
-    async resetWeekly() {
-      setProducts(getProducts().map((p) => ({ ...p, weekSold: 0 })))
-    },
-    async notifyMe(productId) {
-      setProducts(getProducts().map((p) => (p.id === productId ? { ...p, notifyCount: (p.notifyCount || 0) + 1 } : p)))
-    },
-
     async updateSettings(patch) {
-      writeLS(K.settings, { ...getSettings(), ...patch })
+      writeLS(K.settings, { ...withSettingsDefaults(readLS(K.settings, null)), ...patch })
       emit('settings')
     },
 
-    async vote(option) {
-      const v = readLS(K.votes, DEFAULT_VOTES)
-      writeLS(K.votes, { ...v, counts: { ...v.counts, [option]: (v.counts[option] || 0) + 1 } })
-      emit('votes')
+    // ---------- מנהלים: הרשאות ----------
+    subscribeAdmins(cb) {
+      const run = () => cb(getAdmins())
+      run()
+      return on('admins', run)
     },
-    async resetVotes() {
-      const v = readLS(K.votes, DEFAULT_VOTES)
-      writeLS(K.votes, { round: (v.round || 1) + 1, counts: {} })
-      emit('votes')
+    async addAdmin({ name, email, role }) {
+      const e = email.trim().toLowerCase()
+      setAdmins([...getAdmins().filter((a) => a.email !== e), { name: name.trim(), email: e, role, addedAt: Date.now() }])
     },
-
-    async exportAll() {
-      return {
-        products: getProducts(),
-        settings: getSettings(),
-        orders: getOrders(),
-        votes: readLS(K.votes, DEFAULT_VOTES),
-        counter: readLS(K.counter, 100),
-      }
-    },
-    async importAll(data) {
-      if (data.products) setProducts(data.products)
-      if (data.settings) {
-        writeLS(K.settings, data.settings)
-        emit('settings')
-      }
-      if (data.orders) setOrders(data.orders)
-      if (data.votes) {
-        writeLS(K.votes, data.votes)
-        emit('votes')
-      }
-      if (data.counter) writeLS(K.counter, data.counter)
+    async removeAdmin(email) {
+      setAdmins(getAdmins().filter((a) => a.email !== email || a.role === 'owner'))
     },
 
-    // ---------- כניסת מנהלים (PIN) ----------
-    isAdmin: () => sessionStorage.getItem(K.admin) === '1',
+    // ---------- כניסה (דמו: קוד) ----------
     onAdminChange(cb) {
-      adminListeners.add(cb)
-      cb(sessionStorage.getItem(K.admin) === '1')
-      return () => adminListeners.delete(cb)
+      cb(sessionState())
+      return on('session', () => cb(sessionState()))
     },
-    async adminSignIn(pin) {
-      const s = getSettings()
-      const expected = s.adminPinHash || (await sha256(SITE_CONFIG.defaultAdminPin))
-      if ((await sha256(pin)) !== expected) throw new Error('קוד שגוי')
-      sessionStorage.setItem(K.admin, '1')
-      adminListeners.forEach((cb) => cb(true))
+    async adminSignIn(_email, pin) {
+      if ((await sha256(pin)) !== (await sha256(SITE_CONFIG.demoAdminPin))) throw new Error('קוד שגוי')
+      sessionStorage.setItem(K.session, '1')
+      emit('session')
     },
     async adminSignOut() {
-      sessionStorage.removeItem(K.admin)
-      adminListeners.forEach((cb) => cb(false))
-    },
-    async changeAdminSecret(newPin) {
-      await this.updateSettings({ adminPinHash: await sha256(newPin) })
+      sessionStorage.removeItem(K.session)
+      emit('session')
     },
   }
 }

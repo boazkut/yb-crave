@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { initStorage, storage } from '../services/storageService.js'
-import { DEFAULT_SETTINGS, DEFAULT_VOTES } from '../services/defaults.js'
+import { DEFAULT_SETTINGS } from '../services/defaults.js'
 import { SEED_PRODUCTS } from '../data/catalog.js'
 
 const DataCtx = createContext(null)
@@ -8,8 +8,7 @@ const DataCtx = createContext(null)
 export function DataProvider({ children }) {
   const [products, setProducts] = useState(null)
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
-  const [votes, setVotes] = useState(DEFAULT_VOTES)
-  const [mode, setMode] = useState('local')
+  const [mode, setMode] = useState('demo')
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -18,11 +17,7 @@ export function DataProvider({ children }) {
     initStorage().then((a) => {
       if (!alive) return
       setMode(a.mode)
-      unsubs = [
-        storage.subscribeProducts((list) => setProducts(list)),
-        storage.subscribeSettings(setSettings),
-        storage.subscribeVotes(setVotes),
-      ]
+      unsubs = [storage.subscribeProducts(setProducts), storage.subscribeSettings(setSettings)]
       setReady(true)
     })
     return () => {
@@ -32,20 +27,19 @@ export function DataProvider({ children }) {
   }, [])
 
   const value = useMemo(() => {
-    // אם המסד בענן עוד ריק — מציגים את הקטלוג המובנה כדי שהאתר לא ייראה ריק
+    // מסד בענן שעוד לא אותחל: מציגים את הקטלוג המובנה כדי שהחנות לא תיראה ריקה
     const seeded = products && products.length > 0
-    const list = seeded ? products : SEED_PRODUCTS
-    const byId = Object.fromEntries(list.map((p) => [p.id, p]))
+    const list = [...(seeded ? products : SEED_PRODUCTS)].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
     return {
       ready: ready && products !== null,
       products: list,
-      byId,
+      byId: Object.fromEntries(list.map((p) => [p.id, p])),
+      categories: settings.categories,
       catalogEmpty: products !== null && !seeded,
       settings,
-      votes,
       mode,
     }
-  }, [products, settings, votes, mode, ready])
+  }, [products, settings, mode, ready])
 
   return <DataCtx.Provider value={value}>{children}</DataCtx.Provider>
 }

@@ -1,168 +1,235 @@
 import { useEffect, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { ClipboardList, LoaderCircle, LogOut, Package, Settings, Store, Users } from 'lucide-react'
 import { storage } from '../services/storageService.js'
 import { useData } from '../state/DataContext.jsx'
 import { navigate } from '../lib/router.js'
-import { Logo } from '../components/Logo.jsx'
-import { OrdersBoard } from './OrdersBoard.jsx'
-import { ProductsManager } from './ProductsManager.jsx'
-import { ControlCenter } from './ControlCenter.jsx'
-import { Finance } from './Finance.jsx'
-import { AdminToasts, AdminToastProvider } from './adminUi.jsx'
+import { Logo } from '../components/TopBar.jsx'
+import { AdminToastProvider } from './ui.jsx'
+import { OrdersTab } from './OrdersTab.jsx'
+import { ProductsTab } from './ProductsTab.jsx'
+import { AdminsTab } from './AdminsTab.jsx'
+import { SettingsTab } from './SettingsTab.jsx'
 
 const TABS = [
-  { id: 'orders', label: 'הזמנות', icon: '🧾' },
-  { id: 'products', label: 'מלאי', icon: '📦' },
-  { id: 'control', label: 'שליטה', icon: '🎛️' },
-  { id: 'money', label: 'כספים', icon: '💰' },
+  { id: 'orders', label: 'הזמנות', Icon: ClipboardList },
+  { id: 'products', label: 'מוצרים', Icon: Package },
+  { id: 'admins', label: 'מנהלים', Icon: Users },
+  { id: 'settings', label: 'הגדרות', Icon: Settings },
 ]
 
-function Login() {
-  const { mode } = useData()
-  const [secret, setSecret] = useState('')
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  const isPin = mode === 'local'
-
-  const submit = async (e) => {
-    e?.preventDefault()
-    if (!secret) return
-    setBusy(true)
-    setError('')
-    try {
-      await storage.adminSignIn(secret)
-    } catch (err) {
-      setError(err.message || 'הכניסה נכשלה')
-      setSecret('')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const press = (d) => {
-    if (d === 'del') return setSecret((s) => s.slice(0, -1))
-    setSecret((s) => (s + d).slice(0, 8))
-  }
-
+function AuthFrame({ title, sub, children }) {
   return (
-    <div className="mx-auto flex min-h-dvh max-w-sm flex-col items-center justify-center px-6 py-10">
-      <Logo className="h-16" />
-      <h1 className="display mt-6 text-3xl">כניסת צוות</h1>
-      <p className="mt-1 text-sm text-paper/60">{isPin ? 'הקלידו את קוד ה-PIN' : 'הקלידו את סיסמת המנהל'}</p>
-      <form onSubmit={submit} className="mt-6 w-full">
-        <input
-          type="password"
-          inputMode={isPin ? 'numeric' : 'text'}
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          className="field text-center text-2xl tracking-[0.5em]"
-          autoFocus
-          aria-label={isPin ? 'קוד PIN' : 'סיסמה'}
-        />
-        {error && <p className="mt-2 text-center text-sm font-bold text-cola">{error}</p>}
-        {isPin && (
-          <div className="mt-4 grid grid-cols-3 gap-2" dir="ltr">
-            {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'].map((d) => (
-              <button
-                key={d}
-                type={d === 'ok' ? 'submit' : 'button'}
-                onClick={d === 'ok' ? undefined : () => press(d)}
-                className={`h-14 rounded-[8px] border-2 text-xl font-black ${
-                  d === 'ok' ? 'border-coal bg-lime text-coal' : 'border-paper/15 active:bg-paper/10'
-                }`}
-              >
-                {d === 'del' ? '⌫' : d === 'ok' ? 'כניסה' : d}
-              </button>
-            ))}
-          </div>
-        )}
-        {!isPin && (
-          <button type="submit" disabled={busy} className="btn-lime mt-4 w-full">
-            {busy ? 'נכנסים...' : 'כניסה'}
-          </button>
-        )}
-      </form>
-      <button type="button" onClick={() => navigate('/')} className="mt-8 text-sm text-paper/50 underline">
+    <div className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-6 py-10">
+      <Logo />
+      <h1 className="mt-8 text-2xl font-bold">{title}</h1>
+      {sub && <p className="mt-1.5 text-[15px] leading-relaxed text-muted">{sub}</p>}
+      <div className="mt-6">{children}</div>
+      <button type="button" onClick={() => navigate('/')} className="mt-8 self-start text-sm text-muted underline underline-offset-4">
         חזרה לחנות
       </button>
     </div>
   )
 }
 
-function Shell() {
+function Login({ mode }) {
+  const [view, setView] = useState('signin')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const demo = mode === 'demo'
+
+  const run = async (fn) => {
+    setBusy(true)
+    setErr('')
+    setMsg('')
+    try {
+      await fn()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (demo) {
+    return (
+      <AuthFrame title="אזור מנהלים" sub="האתר רץ כרגע במצב דמו, בלי Firebase. הכניסה היא עם קוד הדמו, והנתונים נשמרים רק בטלפון הזה.">
+        <form onSubmit={(e) => (e.preventDefault(), run(() => storage.adminSignIn('', password)))} className="space-y-3">
+          <label className="label" htmlFor="pin">
+            קוד דמו
+          </label>
+          <input id="pin" type="password" inputMode="numeric" className="field text-center text-xl tracking-[0.4em]" value={password} onChange={(e) => setPassword(e.target.value)} />
+          {err && <p className="error">{err}</p>}
+          <button type="submit" className="btn-primary w-full" disabled={busy || !password}>
+            כניסה
+          </button>
+        </form>
+      </AuthFrame>
+    )
+  }
+
+  const signup = view === 'signup'
+  return (
+    <AuthFrame
+      title={signup ? 'כניסה ראשונה' : 'כניסת מנהלים'}
+      sub={signup ? 'מנהל ראשי הוסיף אתכם? בחרו כאן סיסמה לאימייל שלכם. נשלח מייל אימות.' : 'רק מנהלים מורשים יכולים להיכנס.'}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          run(() => (signup ? storage.adminSignUp(email, password) : storage.adminSignIn(email, password)))
+        }}
+        className="space-y-3"
+      >
+        <div>
+          <label className="label" htmlFor="email">
+            אימייל
+          </label>
+          <input id="email" type="email" dir="ltr" className="field text-right" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+        </div>
+        <div>
+          <label className="label" htmlFor="pw">
+            {signup ? 'סיסמה חדשה (6 תווים ומעלה)' : 'סיסמה'}
+          </label>
+          <input
+            id="pw"
+            type="password"
+            dir="ltr"
+            className="field text-right"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete={signup ? 'new-password' : 'current-password'}
+          />
+        </div>
+        {err && <p className="error">{err}</p>}
+        {msg && <p className="hint">{msg}</p>}
+        <button type="submit" className="btn-primary w-full" disabled={busy || !email || !password}>
+          {busy && <LoaderCircle size={18} className="animate-spin" />}
+          {signup ? 'יצירת סיסמה' : 'כניסה'}
+        </button>
+      </form>
+      <div className="mt-4 flex flex-wrap justify-between gap-2 text-sm">
+        <button type="button" className="text-ink underline underline-offset-4" onClick={() => setView(signup ? 'signin' : 'signup')}>
+          {signup ? 'כבר יש לי סיסמה' : 'כניסה ראשונה? יצירת סיסמה'}
+        </button>
+        {!signup && (
+          <button
+            type="button"
+            className="text-muted underline underline-offset-4"
+            onClick={() =>
+              email ? run(async () => (await storage.resetPassword(email), setMsg('שלחנו מייל לאיפוס סיסמה.'))) : setErr('כתבו קודם את האימייל')
+            }
+          >
+            שכחתי סיסמה
+          </button>
+        )}
+      </div>
+    </AuthFrame>
+  )
+}
+
+function Verify({ auth, onState }) {
+  const [msg, setMsg] = useState('')
+  return (
+    <AuthFrame title="צריך לאמת את האימייל" sub={`שלחנו מייל אימות ל-${auth.email}. פתחו אותו, לחצו על הקישור, ואז חזרו לכאן.`}>
+      <div className="space-y-2">
+        <button
+          type="button"
+          className="btn-primary w-full"
+          onClick={async () => {
+            await storage.recheckVerification(onState)
+            setMsg('עדיין לא אומת. בדקו גם בתיקיית הספאם.')
+          }}
+        >
+          אישרתי את המייל
+        </button>
+        <button
+          type="button"
+          className="btn-secondary w-full"
+          onClick={async () => {
+            await storage.resendVerification()
+            setMsg('שלחנו שוב.')
+          }}
+        >
+          שליחת המייל שוב
+        </button>
+        <button type="button" className="btn-ghost w-full" onClick={() => storage.adminSignOut()}>
+          יציאה
+        </button>
+        {msg && <p className="hint text-center">{msg}</p>}
+      </div>
+    </AuthFrame>
+  )
+}
+
+function NoAccess({ auth }) {
+  return (
+    <AuthFrame title="אין הרשאת ניהול" sub={`לאימייל ${auth.email} אין גישה לאזור המנהלים. מנהל ראשי יכול להוסיף אתכם בטאב "מנהלים".`}>
+      <button type="button" className="btn-secondary w-full" onClick={() => storage.adminSignOut()}>
+        יציאה
+      </button>
+    </AuthFrame>
+  )
+}
+
+function Shell({ auth }) {
   const [tab, setTab] = useState('orders')
   const { mode, settings, catalogEmpty } = useData()
 
   return (
     <div className="min-h-dvh pb-28">
-      <header className="sticky top-0 z-30 border-b-2 border-coal bg-coal/95 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-line bg-page/95 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-2.5">
           <div className="flex items-center gap-3">
-            <Logo className="h-10" />
-            <div className="leading-tight">
-              <div className="text-sm font-extrabold">דשבורד</div>
-              <div className={`text-[11px] font-bold ${settings.storeOpen ? 'text-lime' : 'text-cola'}`}>
-                {settings.storeOpen ? 'החנות פתוחה' : 'החנות סגורה'}
-                <span className="text-paper/40"> | {mode === 'firebase' ? 'מסונכרן בענן' : 'מצב מקומי'}</span>
-              </div>
-            </div>
+            <Logo />
+            <span className="text-[13px] text-muted">
+              ניהול{mode === 'demo' ? ' (דמו)' : ''} | {settings.storeOpen ? 'פתוח' : 'סגור'}
+            </span>
           </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => navigate('/')} className="btn-ghost px-3 py-2 text-xs">
-              לחנות
+          <div className="flex gap-1">
+            <button type="button" onClick={() => navigate('/')} className="grid h-10 w-10 place-items-center rounded-full text-muted" aria-label="לחנות">
+              <Store size={19} />
             </button>
-            <button type="button" onClick={() => storage.adminSignOut()} className="btn-ghost px-3 py-2 text-xs">
-              יציאה
+            <button type="button" onClick={() => storage.adminSignOut()} className="grid h-10 w-10 place-items-center rounded-full text-muted" aria-label="יציאה">
+              <LogOut size={19} />
             </button>
           </div>
         </div>
       </header>
 
-      {mode === 'local' && (
-        <div className="mx-auto mt-3 max-w-3xl px-4">
-          <p className="rounded-[6px] border-2 border-[#FFB000]/60 bg-[#FFB000]/10 px-3 py-2 text-xs font-bold leading-relaxed">
-            מצב מקומי: הנתונים נשמרים רק בטלפון הזה, והזמנות של תלמידים מגיעות אליכם בוואטסאפ. כדי לראות כאן הזמנות מכל
-            הטלפונים בלייב, מחברים Firebase (הסבר ב-README).
-          </p>
-        </div>
-      )}
-      {catalogEmpty && (
-        <div className="mx-auto mt-3 max-w-3xl px-4">
-          <div className="rounded-[6px] border-2 border-lime bg-lime/10 p-3">
-            <p className="text-sm font-extrabold">מסד הנתונים בענן עוד ריק.</p>
-            <p className="mt-1 text-xs text-paper/70">לחצו כדי להעלות את כל הקטלוג וההגדרות ההתחלתיות (פעם אחת).</p>
-            <button type="button" className="btn-lime mt-2 px-3 py-2 text-sm" onClick={() => storage.seedCatalog('missing')}>
-              העלה קטלוג התחלתי
+      <main className="mx-auto max-w-3xl space-y-4 px-4 pt-4">
+        {catalogEmpty && (
+          <div className="card p-4">
+            <p className="font-semibold">המסד בענן עוד ריק</p>
+            <p className="mt-1 text-sm text-muted">לחיצה אחת מעלה את כל המוצרים וההגדרות ההתחלתיות.</p>
+            <button type="button" className="btn-primary mt-3" onClick={() => storage.seedCatalog()}>
+              העלאת הקטלוג
             </button>
           </div>
-        </div>
-      )}
-
-      <main className="mx-auto max-w-3xl px-4 pt-4">
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
-            {tab === 'orders' && <OrdersBoard />}
-            {tab === 'products' && <ProductsManager />}
-            {tab === 'control' && <ControlCenter />}
-            {tab === 'money' && <Finance />}
-          </motion.div>
-        </AnimatePresence>
+        )}
+        {tab === 'orders' && <OrdersTab />}
+        {tab === 'products' && <ProductsTab />}
+        {tab === 'admins' && <AdminsTab auth={auth} />}
+        {tab === 'settings' && <SettingsTab />}
       </main>
 
-      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t-2 border-coal bg-coal-2" aria-label="ניווט דשבורד">
-        <div className="mx-auto grid max-w-3xl grid-cols-4 gap-1 px-2 pt-2">
-          {TABS.map((t) => (
+      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white" aria-label="ניווט ניהול">
+        <div className="mx-auto grid max-w-3xl grid-cols-4 px-2 pt-1.5">
+          {TABS.map(({ id, label, Icon }) => (
             <button
-              key={t.id}
+              key={id}
               type="button"
-              onClick={() => setTab(t.id)}
-              aria-current={tab === t.id ? 'page' : undefined}
-              className={`flex flex-col items-center rounded-[8px] py-2 text-xs font-extrabold ${
-                tab === t.id ? 'bg-lime text-coal' : 'text-paper/70'
-              }`}
+              onClick={() => {
+                setTab(id)
+                window.scrollTo(0, 0)
+              }}
+              aria-current={tab === id ? 'page' : undefined}
+              className={`flex flex-col items-center gap-1 py-1.5 text-[12px] ${tab === id ? 'font-semibold text-ink' : 'text-muted'}`}
             >
-              <span className="text-lg leading-none">{t.icon}</span>
-              <span className="mt-1">{t.label}</span>
+              <Icon size={21} strokeWidth={tab === id ? 2.2 : 1.8} />
+              {label}
             </button>
           ))}
         </div>
@@ -172,21 +239,22 @@ function Shell() {
 }
 
 export default function AdminApp() {
-  const [isAdmin, setIsAdmin] = useState(null)
-  useEffect(() => storage.onAdminChange(setIsAdmin), [])
-
+  const { mode } = useData()
+  const [auth, setAuth] = useState(null)
+  useEffect(() => storage.onAdminChange(setAuth), [])
   useEffect(() => {
-    document.title = 'דשבורד · Y&B CRAVE'
+    document.title = 'ניהול | Y&B CRAVE'
     return () => {
-      document.title = 'Y&B CRAVE · צנח הסוכר? אנחנו בדרך.'
+      document.title = 'Y&B CRAVE'
     }
   }, [])
 
-  if (isAdmin === null) return null
-  return (
-    <AdminToastProvider>
-      {isAdmin ? <Shell /> : <Login />}
-      <AdminToasts />
-    </AdminToastProvider>
-  )
+  let screen = null
+  if (!auth) screen = <div className="grid min-h-dvh place-items-center text-muted">טוענים...</div>
+  else if (auth.status === 'admin') screen = <Shell auth={auth} />
+  else if (auth.status === 'unverified') screen = <Verify auth={auth} onState={setAuth} />
+  else if (auth.status === 'notAdmin') screen = <NoAccess auth={auth} />
+  else screen = <Login mode={mode} />
+
+  return <AdminToastProvider>{screen}</AdminToastProvider>
 }
