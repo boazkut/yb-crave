@@ -30,7 +30,7 @@ React + Vite + Tailwind CSS + lucide-react + Firebase (חבילת Spark החינ
    - **Email/Password** (למנהלים)
    - **Anonymous** (ללקוחות, כדי שכל אחד יראה רק את ההזמנה שלו)
    
-   ובלשונית Settings ← Authorized domains מוסיפים `yb-crave.netlify.app`.
+   ובלשונית Settings ← Authorized domains מוסיפים `yb-sell-nosh.netlify.app`.
 5. **המנהל הראשי:** Firestore ← Start collection ← שם: `admins` ← Document ID: **האימייל שלכם באותיות קטנות** ← שדות: `name` (string) = השם, `role` (string) = `owner`.
 6. **פרטי החיבור:** ⚙️ Project settings ← Your apps ← `</>` ← רושמים אפליקציה ← מעתיקים את ה-`firebaseConfig`.
    ב-Netlify: Project configuration ← Environment variables, מוסיפים:
