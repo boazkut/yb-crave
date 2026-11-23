@@ -48,9 +48,14 @@ async function secrets() {
 
 // ---------- טוקן מנהל חתום ----------
 const b64 = (buf) => Buffer.from(buf).toString('base64url')
+// כל הכניסות של המנהלים שנוצרו לפני הרגע הזה בוטלו (לבקשת המנהלים, 23.11.2026):
+// כולם נכנסים מחדש עם הקוד האישי שלהם. הקודים עצמם לא השתנו.
+const SESSIONS_VALID_FROM = Date.parse('2026-11-23T15:14:00Z')
+const TOKEN_MS = 1000 * 60 * 60 * 24 * 60
+
 async function signToken(payload) {
   const { authSecret } = await secrets()
-  const body = b64(JSON.stringify(payload))
+  const body = b64(JSON.stringify({ iat: Date.now(), ...payload }))
   const sig = b64(crypto.createHmac('sha256', authSecret).update(body).digest())
   return `${body}.${sig}`
 }
@@ -69,6 +74,7 @@ async function readAdmin(req) {
     return null
   }
   if (!p.exp || p.exp < Date.now()) return null
+  if ((p.iat || p.exp - TOKEN_MS) < SESSIONS_VALID_FROM) return null
   const admin = await db().get(`admins/${p.sub}`, { type: 'json' })
   if (!admin) return null
   // אחרי החלפת קוד כל הכניסות הישנות מתבטלות
