@@ -150,19 +150,41 @@ export function createCloudAdapter(health) {
 
   const isAdminSession = () => adminState.status === 'admin'
 
+  const CACHE_KEY = 'ybc2:catalogCache'
+
+  async function fetchPublicCatalog(v) {
+    if (!v && !rev.current) await rev.first()
+    const version = v || rev.current?.c
+    // תמיד עם גרסה: כתובת בלי גרסה עלולה לקבל עותק ישן מה-CDN
+    return api(`catalog?v=${encodeURIComponent(version || `t${Math.floor(Date.now() / 30_000)}`)}`)
+  }
+
   async function loadCatalog(v) {
-    // מנהל מקבל נתונים ישר מהשרת; גולשים מקבלים עותק מה-CDN של הגרסה העדכנית
-    let data
-    if (isAdminSession()) data = await api('admin/catalog', { admin: true })
-    else {
-      const version = v || rev.current?.c
-      data = await api(version ? `catalog?v=${encodeURIComponent(version)}` : 'catalog')
+    let data = null
+    // מנהל מקבל נתונים ישר מהשרת. אם זה נכשל (למשל צריך להחליף קוד) — הקטלוג הרגיל, לא מסך ריק
+    if (isAdminSession() && !adminState.mustChangePin) data = await api('admin/catalog', { admin: true }).catch(() => null)
+    if (!data) {
+      try {
+        data = await fetchPublicCatalog(v)
+      } catch (e) {
+        // אין רשת: מציגים את העותק האחרון ששמרנו בטלפון
+        const cached = readLS(CACHE_KEY, null)
+        if (!catalog && cached?.products?.length) data = cached
+        else throw e
+      }
     }
     // מעדכנים את המסך רק כשמשהו באמת השתנה — אחרת כל המוצרים היו מצוירים מחדש באמצע גלילה
     const sig = JSON.stringify(data)
     if (sig === lastSig && catalog) return
     lastSig = sig
     catalog = { products: data.products, settings: withSettingsDefaults(data.settings) }
+    if (data.products?.length) {
+      try {
+        writeLS(CACHE_KEY, { products: data.products, settings: data.settings })
+      } catch {
+        /* אין מקום */
+      }
+    }
     emitCatalog()
   }
   const refreshAfterWrite = () => loadCatalog().catch(() => {})
@@ -198,8 +220,12 @@ export function createCloudAdapter(health) {
         }
       }
       await rev.first()
-      await loadCatalog().catch(() => {
-        catalog = { products: [], settings: withSettingsDefaults(null) }
+      await loadCatalog().catch(async () => {
+        // ניסיון נוסף אחרי רגע, ורק אז מסך ריק (לא הקטלוג הישן)
+        await new Promise((ok) => setTimeout(ok, 1500))
+        await loadCatalog().catch(() => {
+          catalog = { products: [], settings: withSettingsDefaults(readLS(CACHE_KEY, null)?.settings || null) }
+        })
       })
     },
 

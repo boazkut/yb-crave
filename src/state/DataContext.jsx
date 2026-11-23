@@ -27,9 +27,10 @@ export function DataProvider({ children }) {
   }, [])
 
   const value = useMemo(() => {
-    // מסד בענן שעוד לא אותחל: מציגים את הקטלוג המובנה כדי שהחנות לא תיראה ריקה
+    // הקטלוג המובנה מוצג רק במצב דמו מקומי. באתר האמיתי לעולם לא מחליפים את המוצרים שלכם ברשימה הישנה
     const seeded = products && products.length > 0
-    const list = [...(seeded ? products : SEED_PRODUCTS)].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
+    const fallback = mode === 'demo' ? SEED_PRODUCTS : []
+    const list = [...(seeded ? products : fallback)].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
     return {
       ready: ready && products !== null,
       products: list,
