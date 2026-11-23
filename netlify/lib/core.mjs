@@ -294,6 +294,46 @@ const THANKS_PUSH = (o) => ({
   body: `קיבלנו את הזמנה #${o.number}. נעדכן אותך כשהיא מוכנה וכשהיא בדרך לחדר ${o.customer.room}`,
 })
 
+// ---------- מלאי לפי כמות ----------
+// מוצר עם qty (מספר) = מלאי שנספר: כל הזמנה מורידה, ב-0 הוא "אזל", עד 3 "נשארו אחרונים".
+// qty ריק = בלי ספירה (המנהל קובע ידנית במלאי / אזל).
+const LOW_AT = 3
+const stockFromQty = (qty) => (qty <= 0 ? 'out' : qty <= LOW_AT ? 'low' : 'in')
+const tracked = (p) => Number.isInteger(p?.qty)
+
+/** עדכון מוצר בבטחה: כותב רק אם אף אחד לא שינה אותו באמצע (למשל הזמנה שהורידה מהמלאי) */
+async function updateProduct(id, fn) {
+  const store = db()
+  for (let i = 0; i < 8; i += 1) {
+    const res = await store.getWithMetadata(`products/${id}`, { type: 'json' })
+    const cur = res?.data || null
+    const next = fn(cur)
+    if (next === undefined) return { ok: true, product: cur, unchanged: true }
+    if (next && next.error) return { ok: false, ...next, product: cur }
+    const w = cur ? await store.setJSON(`products/${id}`, next, { onlyIfMatch: res.etag }) : await store.setJSON(`products/${id}`, next, { onlyIfNew: true })
+    if (w.modified) return { ok: true, product: next }
+  }
+  return { ok: false, error: 'busy' }
+}
+
+/** שינוי כמות במלאי. delta שלילי = נמכר */
+function adjustStock(id, delta, { allowShort = false } = {}) {
+  return updateProduct(id, (p) => {
+    if (!p || !tracked(p)) return undefined
+    const want = p.qty + delta
+    if (want < 0 && !allowShort) return { error: 'short', left: p.qty, name: p.name }
+    const qty = Math.max(0, want)
+    return { ...p, qty, stock: stockFromQty(qty) }
+  })
+}
+
+async function returnStock(order) {
+  for (const [id, n] of order.stock || []) await adjustStock(id, n, { allowShort: true })
+}
+async function takeStockAgain(order) {
+  for (const [id, n] of order.stock || []) await adjustStock(id, -n, { allowShort: true })
+}
+
 // ---------- הזמנות ----------
 const PHONE_RE = /^0(5\d|7\d)\d{7}$|^0[23489]\d{7}$/
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' })
@@ -344,6 +384,20 @@ async function createOrder(req, ctx) {
     })
   }
   // המחיר נקבע כאן, לפי המחירים והמבצעים שבשרת — לא לפי מה שהטלפון שלח
+  // הורדה מהמלאי (רק מוצרים שנספרים). אם משהו חסר — מחזירים את מה שכבר נלקח ומסבירים
+  const want = {}
+  for (const l of raw) want[l.productId] = (want[l.productId] || 0) + l.qty
+  const taken = []
+  for (const [pid, n] of Object.entries(want)) {
+    if (!tracked(products[pid])) continue
+    const r = await adjustStock(pid, -n)
+    if (!r.ok) {
+      for (const [tid, tn] of taken) await adjustStock(tid, tn, { allowShort: true })
+      if (r.error === 'short') return fail(409, r.left > 0 ? `מ"${r.name}" נשארו רק ${r.left}. מעדכנים את הכמות ושולחים שוב.` : `"${r.name}" אזל בינתיים`)
+      return fail(503, 'עומס רגעי. נסו שוב בעוד רגע')
+    }
+    taken.push([pid, n])
+  }
   const priced = priceCart(raw, products, settings.deals)
   const lines = priced.lines.map((l) => ({ kind: 'product', productId: l.productId, name: l.name, unitPrice: l.unitPrice, basePrice: l.basePrice, qty: l.qty, details: l.details }))
   const total = priced.total
@@ -363,6 +417,7 @@ async function createOrder(req, ctx) {
       note: String(c.note || '').trim().slice(0, 200),
     },
     lines,
+    stock: taken,
     subtotal: priced.subtotal,
     discounts: priced.discounts,
     total,
@@ -377,6 +432,7 @@ async function createOrder(req, ctx) {
   if (proof) await store.set(`proofs/${id}`, proof)
   await store.setJSON(`orders/${id}`, order)
   await bump(ctx, 'o')
+  if (taken.length) await bump(ctx, 'c')
   const pm = { paybox: 'PayBox', bit: 'Bit', cash: 'מזומן' }[method]
   later(ctx, pushAdmins({ title: `הזמנה חדשה #${number}`, body: `${order.customer.name}, חדר ${order.customer.room}: ${total} ₪ ב-${pm}`, url: '/admin', tag: `order-${id}`, kind: 'admin-order' }))
   return json({ id, number, token, createdAt: order.createdAt })
@@ -494,14 +550,32 @@ export async function handle(req, ctx) {
         }
         if ('paid' in patch) next.paid = Boolean(patch.paid)
         if ('rejectReason' in patch) next.rejectReason = String(patch.rejectReason || '').slice(0, 200)
+        // הזמנה שנדחתה/בוטלה מחזירה את המוצרים למלאי; אם מחזירים אותה לפעילה — לוקחים שוב
+        let stockMoved = false
+        const off = ['rejected', 'cancelled'].includes(next.status)
+        if (o.stock?.length && off && !o.stockReturned) {
+          await returnStock(o)
+          next.stockReturned = true
+          stockMoved = true
+        } else if (o.stock?.length && !off && o.stockReturned) {
+          await takeStockAgain(o)
+          next.stockReturned = false
+          stockMoved = true
+        }
         await store.setJSON(`orders/${c}`, next)
         await bump(ctx, 'o')
+        if (stockMoved) await bump(ctx, 'c')
         if (patch.status && patch.status !== o.status && CUSTOMER_PUSH[patch.status]) {
           later(ctx, pushTo(`push/order/${c}`, { ...CUSTOMER_PUSH[patch.status](next), url: '/', tag: `order-${c}` }))
         }
         return json({ order: strip(next) })
       }
       if (b === 'orders' && c && m === 'DELETE') {
+        const o = await store.get(`orders/${c}`, { type: 'json' })
+        if (o?.stock?.length && !o.stockReturned && o.status !== 'delivered') {
+          await returnStock(o)
+          await bump(ctx, 'c')
+        }
         await Promise.all([store.delete(`orders/${c}`), store.delete(`proofs/${c}`), store.delete(`push/order/${c}`)])
         await bump(ctx, 'o')
         return json({ ok: true })
@@ -524,11 +598,34 @@ export async function handle(req, ctx) {
       if (b === 'products' && c && !d && m === 'PUT') {
         if (!/^[\w-]{1,80}$/.test(c)) return fail(400, 'מזהה לא תקין')
         const p = (await req.json().catch(() => null)) || {}
-        const cur = (await store.get(`products/${c}`, { type: 'json' })) || {}
-        const next = cleanProduct(p, cur, c)
-        await store.setJSON(`products/${c}`, next)
+        // הכמות במלאי משתנה רק דרך /qty (כדי שעריכה של מחיר לא תדרוס מכירות שקרו באמצע)
+        const r = await updateProduct(c, (cur) => {
+          const next = cleanProduct(p, cur || {}, c)
+          if (tracked(cur)) {
+            next.qty = cur.qty
+            next.stock = stockFromQty(cur.qty)
+          } else delete next.qty
+          return next
+        })
+        if (!r.ok) return fail(503, 'עומס רגעי. נסו שוב')
         await bump(ctx, 'c')
-        return json({ product: next })
+        return json({ product: r.product })
+      }
+      if (b === 'products' && c && d === 'qty' && m === 'PUT') {
+        const { qty } = (await req.json().catch(() => null)) || {}
+        const n = qty === null || qty === '' || qty === undefined ? null : Math.floor(Number(qty))
+        if (n !== null && (!Number.isFinite(n) || n < 0 || n > 99999)) return fail(400, 'כמות לא תקינה')
+        const r = await updateProduct(c, (cur) => {
+          if (!cur) return { error: 'missing' }
+          if (n === null) {
+            const { qty: _drop, ...rest } = cur
+            return { ...rest, stock: cur.stock === 'out' && tracked(cur) ? 'in' : cur.stock }
+          }
+          return { ...cur, qty: n, stock: stockFromQty(n) }
+        })
+        if (!r.ok) return fail(r.error === 'missing' ? 404 : 503, r.error === 'missing' ? 'לא נמצא' : 'עומס רגעי. נסו שוב')
+        await bump(ctx, 'c')
+        return json({ product: r.product })
       }
       if (b === 'products' && c && !d && m === 'DELETE') {
         await Promise.all([store.delete(`products/${c}`), store.delete(`pimg/${c}`)])
@@ -550,11 +647,25 @@ export async function handle(req, ctx) {
             allowed.price = n
           }
           if (patch && ['in', 'low', 'out'].includes(patch.stock)) allowed.stock = patch.stock
-          if (!Object.keys(allowed).length) return fail(400, 'אין מה לעדכן')
+          let setQty
+          if (patch && 'qty' in patch) {
+            setQty = patch.qty === null || patch.qty === '' ? null : Math.floor(Number(patch.qty))
+            if (setQty !== null && (!Number.isFinite(setQty) || setQty < 0 || setQty > 99999)) return fail(400, 'כמות לא תקינה')
+          }
+          if (!Object.keys(allowed).length && setQty === undefined) return fail(400, 'אין מה לעדכן')
           await Promise.all(
             clean.map(async (id) => {
-              const cur = await store.get(`products/${id}`, { type: 'json' })
-              if (cur) await store.setJSON(`products/${id}`, { ...cur, ...allowed })
+              await updateProduct(id, (cur) => {
+                if (!cur) return undefined
+                const next = { ...cur, ...allowed }
+                if (setQty === null) {
+                  delete next.qty
+                } else if (setQty !== undefined) {
+                  next.qty = setQty
+                  next.stock = stockFromQty(setQty)
+                } else if (tracked(cur)) next.stock = stockFromQty(cur.qty)
+                return next
+              })
             }),
           )
         } else return fail(400, 'פעולה לא מוכרת')

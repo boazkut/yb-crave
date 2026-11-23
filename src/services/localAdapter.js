@@ -145,6 +145,19 @@ export function createLocalAdapter() {
       const list = getProducts()
       setProducts(list.some((p) => p.id === product.id) ? list.map((p) => (p.id === product.id ? { ...p, ...product } : p)) : [...list, product])
     },
+    async setProductQty(id, qty) {
+      const n = qty === null ? null : Math.max(0, Math.floor(Number(qty)))
+      setProducts(
+        getProducts().map((p) => {
+          if (p.id !== id) return p
+          if (n === null) {
+            const { qty: _q, ...rest } = p
+            return rest
+          }
+          return { ...p, qty: n, stock: n <= 0 ? 'out' : n <= 3 ? 'low' : 'in' }
+        }),
+      )
+    },
     async deleteProduct(id) {
       const imgs = readLS(K.images, {})
       delete imgs[id]

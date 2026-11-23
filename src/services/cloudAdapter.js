@@ -347,6 +347,11 @@ export function createCloudAdapter(health) {
       await api(`admin/products/${encodeURIComponent(product.id)}`, { method: 'PUT', admin: true, body: product })
       await refreshAfterWrite()
     },
+    /** כמות במלאי (null = בלי ספירה) */
+    async setProductQty(id, qty) {
+      await api(`admin/products/${encodeURIComponent(id)}/qty`, { method: 'PUT', admin: true, body: { qty } })
+      await refreshAfterWrite()
+    },
     async deleteProduct(id) {
       await api(`admin/products/${encodeURIComponent(id)}`, { method: 'DELETE', admin: true })
       await refreshAfterWrite()

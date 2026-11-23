@@ -100,7 +100,13 @@ function ProofUpload({ proof, setProof, required, error }) {
 
 function CartStep({ onNext, onClose }) {
   const cart = useCart()
+  const ui = useUI()
   const { settings, byId } = useData()
+  // שורה שאי אפשר להזמין (אזל / נשאר פחות / נמחק) עוצרת את ההמשך עד שמתקנים
+  const blocked = cart.lines.some((l) => {
+    const p = byId[l.productId]
+    return !p || p.stock === 'out' || (Number.isInteger(p.qty) && l.qty > p.qty)
+  })
 
   if (!cart.lines.length) {
     return (
@@ -127,12 +133,27 @@ function CartStep({ onNext, onClose }) {
             <div className="min-w-0 flex-1">
               <p className="text-[15px] font-medium leading-tight">{l.name}</p>
               {l.details?.length > 0 && <p className="mt-0.5 text-[12px] leading-snug text-muted">{l.details.join(', ')}</p>}
+              {(() => {
+                const p = byId[l.productId]
+                if (!p) return <p className="mt-0.5 text-[12px] font-semibold text-danger">המוצר כבר לא בחנות. מוחקים אותו מההזמנה.</p>
+                if (p.stock === 'out') return <p className="mt-0.5 text-[12px] font-semibold text-danger">אזל בינתיים. מוחקים אותו מההזמנה.</p>
+                if (Number.isInteger(p.qty) && l.qty > p.qty) return <p className="mt-0.5 text-[12px] font-semibold text-danger">נשארו רק {p.qty}. מורידים כמות.</p>
+                return null
+              })()}
               <p className="mt-0.5 text-sm font-semibold">
                 <bdi>{ils(l.unitPrice * l.qty)}</bdi>
                 {l.basePrice > l.unitPrice && <bdi className="mr-2 text-[12px] font-normal text-muted line-through">{ils(l.basePrice * l.qty)}</bdi>}
               </p>
             </div>
-            <Stepper value={l.qty} onDec={() => cart.setQty(l.key, l.qty - 1)} onInc={() => cart.setQty(l.key, l.qty + 1)} />
+            <Stepper
+              value={l.qty}
+              onDec={() => cart.setQty(l.key, l.qty - 1)}
+              onInc={() => {
+                const left = Number.isInteger(byId[l.productId]?.qty) ? byId[l.productId].qty : null
+                if (left !== null && l.qty >= left) return ui.toast(left === 1 ? 'נשאר רק אחד' : `נשארו רק ${left}`)
+                cart.setQty(l.key, l.qty + 1)
+              }}
+            />
           </li>
         ))}
       </ul>
@@ -159,7 +180,7 @@ function CartStep({ onNext, onClose }) {
         <span className="text-2xl font-bold">{ils(cart.total)}</span>
       </div>
       {!settings.storeOpen && <p className="mt-3 rounded-xl bg-tile px-3 py-2.5 text-sm">החנות סגורה כרגע, אז אי אפשר לשלוח הזמנה.</p>}
-      <button type="button" onClick={onNext} disabled={!settings.storeOpen} className="btn-primary mt-4 w-full">
+      <button type="button" onClick={onNext} disabled={!settings.storeOpen || blocked} className="btn-primary mt-4 w-full">
         המשך לפרטים ותשלום
       </button>
     </div>

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowDown, ArrowUp, Camera, Check, ChevronDown, ImagePlus, Plus, SkipForward, Tag, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Boxes, Camera, Check, ChevronDown, ImagePlus, Plus, SkipForward, Tag, Trash2, X } from 'lucide-react'
 import { useData } from '../state/DataContext.jsx'
 import { storage } from '../services/storageService.js'
 import { ProductImage, hasRealImage } from '../components/ProductImage.jsx'
@@ -193,6 +193,67 @@ function useLongPress(onLong, ms = 450) {
   return { handlers, swallow }
 }
 
+/** מלאי: ידני (במלאי / נשארו אחרונים / אזל) או לפי כמות — ואז האזל מתעדכן לבד */
+function StockControl({ p, onStock }) {
+  const toast = useToast()
+  const counted = Number.isInteger(p.qty)
+  const [editing, setEditing] = useState(false)
+  const setQty = async (v) => {
+    const n = v === '' ? null : Math.floor(Number(v))
+    if (n !== null && (!Number.isFinite(n) || n < 0)) return toast('כמות לא תקינה')
+    try {
+      await storage.setProductQty(p.id, n)
+      toast(n === null ? `${p.name}: בלי ספירת כמות` : n === 0 ? `${p.name}: אזל` : `${p.name}: ${n} במלאי`)
+    } catch (e) {
+      toast(e.message || 'השמירה נכשלה')
+    }
+    setEditing(false)
+  }
+  if (!storage.setProductQty) {
+    return (
+      <div className="mt-2">
+        <Segmented size="sm" value={p.stock || 'in'} onChange={onStock} options={STOCK_OPTIONS} />
+      </div>
+    )
+  }
+  if (counted || editing) {
+    return (
+      <div className="mt-2 flex items-center gap-2">
+        <div className="relative w-[110px] shrink-0">
+          <CommitInput
+            type="number"
+            inputMode="numeric"
+            min="0"
+            value={counted ? p.qty : ''}
+            autoFocus={editing && !counted}
+            placeholder="כמה יש?"
+            onCommit={(v) => setQty(String(v).trim())}
+            aria-label={`כמות במלאי של ${p.name}`}
+            className="field py-2 pl-9 text-center text-[15px] font-bold"
+          />
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-muted">יח׳</span>
+        </div>
+        <p className={`min-w-0 flex-1 text-[13px] leading-tight ${counted && p.qty === 0 ? 'font-bold text-danger' : 'text-muted'}`}>
+          {counted ? (p.qty === 0 ? 'אזל — מתעדכן לבד כשמוסיפים כמות' : p.qty <= 3 ? 'נשארו אחרונים. אזל לבד כשנגמר' : 'אזל לבד כשנגמר') : 'מקלידים כמות ולוחצים מחוץ לשדה'}
+        </p>
+        <button type="button" onClick={() => (counted ? setQty('') : setEditing(false))} className="shrink-0 text-[12px] font-semibold text-muted underline underline-offset-2">
+          {counted ? 'בלי ספירה' : 'ביטול'}
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <Segmented size="sm" value={p.stock || 'in'} onChange={onStock} options={STOCK_OPTIONS} />
+      </div>
+      <button type="button" onClick={() => setEditing(true)} className="shrink-0 rounded-lg bg-tile px-2.5 py-2 text-[12px] font-semibold">
+        לפי כמות
+      </button>
+    </div>
+  )
+}
+
 function ProductRow({ p, categories, selecting, selected, onToggle }) {
   const toast = useToast()
   const [open, setOpen] = useState(false)
@@ -254,9 +315,7 @@ function ProductRow({ p, categories, selecting, selected, onToggle }) {
       </div>
       {selecting ? null : (
       <>
-      <div className="mt-2">
-        <Segmented size="sm" value={p.stock || 'in'} onChange={(v) => save({ stock: v }, `${p.name}: ${STOCK[v].label}`)} options={STOCK_OPTIONS} />
-      </div>
+      <StockControl p={p} onStock={(v) => save({ stock: v }, `${p.name}: ${STOCK[v].label}`)} />
 
       <AnimatePresence>
         {open && (
@@ -324,9 +383,10 @@ function ProductRow({ p, categories, selecting, selected, onToggle }) {
 function BulkBar({ ids, onAll, onClear }) {
   const toast = useToast()
   const { byId } = useData()
-  const [pricing, setPricing] = useState(false)
+  const [mode, setMode] = useState(null) // null | 'price' | 'qty'
   const [price, setPrice] = useState('')
   const [busy, setBusy] = useState(false)
+  const pricing = mode !== null
 
   const run = async (action, patch, msg) => {
     setBusy(true)
@@ -342,7 +402,7 @@ function BulkBar({ ids, onAll, onClear }) {
     }
   }
   const n = Number(price)
-  const priceOk = price !== '' && !Number.isNaN(n) && n >= 0
+  const priceOk = mode === 'qty' ? price === '' || (Number.isInteger(n) && n >= 0) : price !== '' && !Number.isNaN(n) && n >= 0
 
   return (
     <motion.div
@@ -367,34 +427,46 @@ function BulkBar({ ids, onAll, onClear }) {
             className="mt-2.5 flex gap-2"
             onSubmit={(e) => {
               e.preventDefault()
-              if (priceOk) run('update', { price: n }, `המחיר של ${ids.length} מוצרים עודכן ל-${n} ₪`)
+              if (!priceOk) return
+              if (mode === 'qty') run('update', { qty: price === '' ? null : n }, price === '' ? `${ids.length} מוצרים בלי ספירת כמות` : `${ids.length} מוצרים: ${n} במלאי לכל אחד`)
+              else run('update', { price: n }, `המחיר של ${ids.length} מוצרים עודכן ל-${n} ₪`)
             }}
           >
             <div className="relative flex-1">
               <input
                 autoFocus
                 type="number"
-                inputMode="decimal"
-                step="0.5"
+                inputMode={mode === 'qty' ? 'numeric' : 'decimal'}
+                step={mode === 'qty' ? '1' : '0.5'}
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
-                placeholder="מחיר חדש"
-                className="w-full rounded-xl bg-white px-3 py-3 pl-7 text-center text-[17px] font-bold text-ink focus:outline-none"
-                aria-label="מחיר חדש לכל המוצרים שנבחרו"
+                placeholder={mode === 'qty' ? 'כמות לכל מוצר (ריק = בלי ספירה)' : 'מחיר חדש'}
+                className="w-full rounded-xl bg-white px-3 py-3 pl-7 text-center text-[17px] font-bold text-ink placeholder:text-[13px] placeholder:font-normal focus:outline-none"
+                aria-label={mode === 'qty' ? 'כמות במלאי לכל המוצרים שנבחרו' : 'מחיר חדש לכל המוצרים שנבחרו'}
               />
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">₪</span>
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">{mode === 'qty' ? 'יח׳' : '₪'}</span>
             </div>
             <button type="submit" disabled={!priceOk || busy} className="btn bg-white px-4 text-ink">
               {busy ? '...' : 'עדכון'}
             </button>
-            <button type="button" onClick={() => setPricing(false)} className="btn px-3 text-white/80">
+            <button
+              type="button"
+              onClick={() => {
+                setMode(null)
+                setPrice('')
+              }}
+              className="btn px-3 text-white/80"
+            >
               חזרה
             </button>
           </form>
         ) : (
-          <div className="mt-2.5 grid grid-cols-2 gap-2">
-            <button type="button" disabled={busy} onClick={() => setPricing(true)} className="btn bg-white py-3 text-ink">
-              <Tag size={17} /> מחיר לכולם
+          <div className="mt-2.5 grid grid-cols-3 gap-2">
+            <button type="button" disabled={busy} onClick={() => setMode('price')} className="btn bg-white py-3 text-[14px] text-ink">
+              <Tag size={16} /> מחיר
+            </button>
+            <button type="button" disabled={busy || !storage.setProductQty} onClick={() => setMode('qty')} className="btn bg-white py-3 text-[14px] text-ink">
+              <Boxes size={16} /> כמות
             </button>
             <button
               type="button"
@@ -402,7 +474,7 @@ function BulkBar({ ids, onAll, onClear }) {
               onClick={() => window.confirm(`למחוק ${ids.length} מוצרים? אי אפשר לבטל.`) && run('delete', null, `${ids.length} מוצרים נמחקו`)}
               className="btn bg-danger py-3 text-white"
             >
-              <Trash2 size={17} /> {busy ? 'מוחקים...' : 'מחיקה'}
+              <Trash2 size={16} /> {busy ? '...' : 'מחיקה'}
             </button>
           </div>
         )}

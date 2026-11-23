@@ -127,7 +127,11 @@ function ProductCardBase({ product: p, canBuy = true, deals }) {
   const sale = out ? null : saleFor(p, deals)
   const bundle = out || sale ? null : bundleFor(p, deals)
   const qty = cart.qtyOf(p.id)
-  const add = () => (p.comboSlots ? ui.openSheet('combo', p.id) : cart.addProduct(p))
+  const left = Number.isInteger(p.qty) ? p.qty : null
+  const add = () => {
+    if (left !== null && qty >= left) return ui.toast(left === 1 ? 'נשאר רק אחד' : `נשארו רק ${left}`)
+    return p.comboSlots ? ui.openSheet('combo', p.id) : cart.addProduct(p)
+  }
 
   return (
     <article className={`flex flex-col rounded-[20px] p-2 ${out ? 'bg-[#EFEFEF]' : 'bg-white'}`} aria-label={out ? `${p.name}, אזל מהמלאי` : undefined}>
@@ -142,8 +146,10 @@ function ProductCardBase({ product: p, canBuy = true, deals }) {
         {(sale || bundle) && (
           <span className="absolute left-2 top-2 rounded-full bg-[#FFD43B] px-2 py-0.5 text-[12px] font-extrabold text-ink">{sale ? 'מבצע' : bundleLabel(bundle, Number(p.price))}</span>
         )}
-        {p.stock === 'low' && (
-          <span className="absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink">{STOCK.low.label}</span>
+        {!out && (left !== null ? left <= 5 : p.stock === 'low') && (
+          <span className="absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink">
+            {left !== null ? (left === 1 ? 'נשאר אחרון' : `נשארו ${left}`) : STOCK.low.label}
+          </span>
         )}
         {!out && canBuy && (
           <div className="absolute bottom-2 left-2">
