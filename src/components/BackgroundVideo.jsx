@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 
 /**
  * רקע וידאו לכל האפליקציה.
- * כל הסרטונים מתחלפים: כל כמה שניות, וגם בכל קטע גלילה — "חיתוך" לקליפ הבא עם זום קצר והבזק, כמו באדיט.
+ * במסך הראשי כל הסרטונים מתחלפים: כל כמה שניות, וגם בכל קטע גלילה — "חיתוך" לקליפ הבא עם זום קצר והבזק, כמו באדיט.
+ * בדף של קטגוריה נשאר רק הסרטון שלה (שתייה = שתייה).
  * רק קליפ אחד מתנגן בכל רגע והבא בתור כבר נטען, כדי שהטלפון לא ייתקע.
  */
 const CLIPS = {
@@ -19,36 +20,39 @@ const lowPower = () =>
   typeof window !== 'undefined' &&
   (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || navigator.connection?.saveData === true)
 
-export function BackgroundVideo({ base = 'drinks' }) {
+export function BackgroundVideo({ base = 'drinks', rotate = false }) {
   const startIdx = Math.max(0, ORDER.indexOf(base))
   const [idx, setIdx] = useState(startIdx)
   const refs = useRef({})
   const still = useRef(lowPower()).current
   const lastCut = useRef(performance.now())
   const active = ORDER[idx]
-  const next = ORDER[(idx + 1) % ORDER.length]
+  const next = rotate ? ORDER[(idx + 1) % ORDER.length] : active
 
-  // דף קטגוריה מתחיל מהסרטון שלה
+  // דף קטגוריה עובר לסרטון שלה
   useEffect(() => {
+    lastCut.current = performance.now()
     setIdx(startIdx)
-  }, [startIdx])
+  }, [startIdx, rotate])
 
   const cut = () => {
     lastCut.current = performance.now()
     setIdx((i) => (i + 1) % ORDER.length)
   }
 
-  // חיתוך לפי זמן
+  // חיתוך לפי זמן (רק במסך הראשי)
   useEffect(() => {
+    if (!rotate) return undefined
     const t = setInterval(() => {
       if (document.hidden) return
       if (performance.now() - lastCut.current >= EVERY_MS - 50) cut()
     }, 500)
     return () => clearInterval(t)
-  }, [])
+  }, [rotate])
 
-  // חיתוך לפי גלילה (לכל כיוון)
+  // חיתוך לפי גלילה (לכל כיוון, רק במסך הראשי)
   useEffect(() => {
+    if (!rotate) return undefined
     let lastY = window.scrollY
     let acc = 0
     const onScroll = () => {
@@ -62,7 +66,7 @@ export function BackgroundVideo({ base = 'drinks' }) {
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+  }, [rotate])
 
   // מנגנים רק את הקליפ הפעיל, עם זום קצר (בלי פילטרים כבדים)
   useEffect(() => {

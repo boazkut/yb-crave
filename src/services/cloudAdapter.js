@@ -1,7 +1,8 @@
 /**
  * מתאם "ענן" — מדבר עם השרת של האתר עצמו ב-Netlify (/api).
  * עובד מיד אחרי פריסה: כל הטלפונים רואים את אותן הזמנות, מלאי והגדרות.
- * עדכונים חיים נעשים בבדיקה תקופתית קלה (רק כשהמסך פתוח) ובהתראות Push.
+ * עדכונים חיים: בדיקת "גרסאות" זעירה כל 2.5 שניות (מה-CDN, כשהמסך פתוח),
+ * ומשיכת נתונים רק כשמשהו באמת השתנה. בנוסף התראות Push.
  */
 import { withSettingsDefaults } from './defaults.js'
 import { readLS, writeLS } from '../lib/utils.js'
@@ -51,6 +52,42 @@ function poll(fn, ms) {
   }
 }
 
+const REV_EVERY = 2500
+
+/**
+ * שעון הגרסאות: c = קטלוג והגדרות, o = הזמנות.
+ * כל שינוי בשרת משנה את הגרסה, וכל מי שמחכה לסוג הזה מקבל הודעה תוך שניות.
+ */
+function createRevWatcher() {
+  const listeners = { c: new Set(), o: new Set() }
+  let last = null
+  let stop = null
+  const check = async () => {
+    const res = await fetch('/api/rev', { cache: 'no-store' })
+    if (!res.ok) return
+    const r = await res.json()
+    const prev = last
+    last = r
+    if (!prev) return
+    if (r.c !== prev.c) listeners.c.forEach((f) => f(r.c))
+    if (r.o !== prev.o) listeners.o.forEach((f) => f(r.o))
+  }
+  return {
+    get current() {
+      return last
+    },
+    async first() {
+      if (!last) await check().catch(() => {})
+      return last
+    },
+    on(kind, f) {
+      listeners[kind].add(f)
+      if (!stop) stop = poll(check, REV_EVERY)
+      return () => listeners[kind].delete(f)
+    },
+  }
+}
+
 export async function probeCloud() {
   try {
     const ctrl = new AbortController()
@@ -70,6 +107,7 @@ export function createCloudAdapter(health) {
   let catalog = null
   let lastSig = ''
   let adminState = { status: 'signedOut' }
+  const rev = createRevWatcher()
 
   const emitCatalog = () => subs.catalog.forEach((cb) => cb(catalog))
   const setAdminState = (s) => {
@@ -78,10 +116,15 @@ export function createCloudAdapter(health) {
   }
   const isAdminSession = () => adminState.status === 'admin'
 
-  async function loadCatalog() {
-    // מנהל מקבל נתונים טריים; גולשים מקבלים עותק מהיר מה-CDN
-    const data = isAdminSession() ? await api('admin/catalog', { admin: true }) : await api('catalog')
-    // מעדכנים את המסך רק כשמשהו באמת השתנה — אחרת כל 97 המוצרים היו מצוירים מחדש באמצע גלילה
+  async function loadCatalog(v) {
+    // מנהל מקבל נתונים ישר מהשרת; גולשים מקבלים עותק מה-CDN של הגרסה העדכנית
+    let data
+    if (isAdminSession()) data = await api('admin/catalog', { admin: true })
+    else {
+      const version = v || rev.current?.c
+      data = await api(version ? `catalog?v=${encodeURIComponent(version)}` : 'catalog')
+    }
+    // מעדכנים את המסך רק כשמשהו באמת השתנה — אחרת כל המוצרים היו מצוירים מחדש באמצע גלילה
     const sig = JSON.stringify(data)
     if (sig === lastSig && catalog) return
     lastSig = sig
@@ -90,9 +133,13 @@ export function createCloudAdapter(health) {
   }
   const refreshAfterWrite = () => loadCatalog().catch(() => {})
 
-  let catalogPoll = null
+  let catalogWatch = false
   const ensureCatalogPoll = () => {
-    if (!catalogPoll) catalogPoll = poll(loadCatalog, 25_000)
+    if (catalogWatch) return
+    catalogWatch = true
+    rev.on('c', (v) => loadCatalog(v).catch(() => {}))
+    // גיבוי, למקרה שבדיקת הגרסאות נכשלת
+    poll(() => loadCatalog(), 120_000)
   }
 
   return {
@@ -109,6 +156,7 @@ export function createCloudAdapter(health) {
           writeLS(TOKEN_KEY, null)
         }
       }
+      await rev.first()
       await loadCatalog().catch(() => {
         catalog = { products: [], settings: withSettingsDefaults(null) }
       })
@@ -147,7 +195,7 @@ export function createCloudAdapter(health) {
         return () => {}
       }
       let last = ''
-      return poll(async () => {
+      const fetchOne = async () => {
         try {
           const o = await api(`orders/${encodeURIComponent(id)}?t=${encodeURIComponent(t)}`)
           const sig = `${o.status}|${o.paid}|${o.rejectReason}`
@@ -158,7 +206,14 @@ export function createCloudAdapter(health) {
         } catch (e) {
           if (e.status === 404) cb(null)
         }
-      }, 12_000)
+      }
+      // מושכים מיד כשהגרסה של ההזמנות משתנה, ובנוסף בדיקת גיבוי איטית
+      const off = rev.on('o', () => fetchOne())
+      const stop = poll(fetchOne, 60_000)
+      return () => {
+        off()
+        stop()
+      }
     },
     async saveOrderPush(id, subscription) {
       const t = readLS(ORDER_TOKENS, {})[id]
@@ -172,10 +227,12 @@ export function createCloudAdapter(health) {
         const { orders } = await api(`admin/orders?days=${days}`, { admin: true })
         cb(orders)
       }
-      const stop = poll(run, 8_000)
       const again = () => run().catch(() => {})
+      const off = rev.on('o', again)
+      const stop = poll(run, 45_000)
       subs.refresh.add(again)
       return () => {
+        off()
         stop()
         subs.refresh.delete(again)
       }

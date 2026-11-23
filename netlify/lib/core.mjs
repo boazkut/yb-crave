@@ -140,13 +140,23 @@ async function pushAdmins(payload) {
 }
 const later = (ctx, p) => (ctx?.waitUntil ? ctx.waitUntil(p.catch(() => {})) : p.catch(() => {}))
 
-// אחרי שינוי במוצרים או בהגדרות מנקים את העותק של הקטלוג ב-CDN, כדי שכולם יראו מיד (למשל חנות סגורה)
-const purgeCatalog = async () => {
+// ---------- עדכונים מהירים ----------
+// לכל סוג נתונים יש "גרסה" (c = קטלוג והגדרות, o = הזמנות) שמשתנה בכל כתיבה.
+// הטלפונים בודקים את הגרסאות כל כמה שניות דרך ה-CDN (בלי להפעיל את השרת),
+// ומושכים נתונים רק כשמשהו השתנה. אחרי כל כתיבה מנקים את העותק ב-CDN כדי שהשינוי ייראה מיד.
+const REV_TTL = 5
+const purge = async (tags) => {
   try {
-    await purgeCache({ tags: ['catalog'] })
-  } catch {
-    /* מקומית או בלי הרשאה: העותק פג לבד תוך 20 שניות */
+    await purgeCache({ tags })
+    return 'ok'
+  } catch (e) {
+    console.log('purge failed:', e?.message)
+    return e?.message || 'error'
   }
+}
+async function bump(ctx, kind) {
+  await db().set(`rev/${kind}`, String(Date.now()))
+  later(ctx, purge(kind === 'c' ? ['rev', 'catalog'] : ['rev']))
 }
 
 const CUSTOMER_PUSH = {
@@ -241,6 +251,7 @@ async function createOrder(req, ctx) {
   const store = db()
   if (proof) await store.set(`proofs/${id}`, proof)
   await store.setJSON(`orders/${id}`, order)
+  await bump(ctx, 'o')
   const pm = { paybox: 'PayBox', bit: 'Bit', cash: 'מזומן' }[method]
   later(ctx, pushAdmins({ title: `הזמנה חדשה #${number}`, body: `${order.customer.name}, חדר ${order.customer.room}: ${total} ₪ ב-${pm}`, url: '/admin', tag: `order-${id}` }))
   return json({ id, number, token, createdAt: order.createdAt })
@@ -284,11 +295,27 @@ export async function handle(req, ctx) {
       const s = await secrets()
       return json({ ok: true, vapidPublicKey: s.vapidPublic })
     }
+    if (a === 'rev' && m === 'GET') {
+      const store = db()
+      const [c, o] = await Promise.all([store.get('rev/c'), store.get('rev/o')])
+      return json({ c: c || '0', o: o || '0' }, 200, {
+        'cache-control': 'no-store',
+        'netlify-cdn-cache-control': `public, durable, s-maxage=${REV_TTL}`,
+        'netlify-cache-tag': 'rev',
+      })
+    }
+    if (a === 'diag' && m === 'GET') {
+      const result = await purge(['diag'])
+      return json({ purgeToken: Boolean(env('NETLIFY_PURGE_API_TOKEN')), purge: result }, 200, { 'cache-control': 'no-store' })
+    }
     if (a === 'catalog' && m === 'GET') {
       const [products, settings] = await Promise.all([listProducts(), getSettings()])
+      // עם ?v=<גרסה> כל גרסה נשמרת ב-CDN בנפרד, כך שגרסה חדשה תמיד טרייה
+      const versioned = url.searchParams.has('v')
       return json({ products, settings: publicSettings(settings) }, 200, {
         'cache-control': 'public, max-age=0, must-revalidate',
-        'netlify-cdn-cache-control': 'public, durable, s-maxage=20, stale-while-revalidate=60',
+        'netlify-cdn-cache-control': versioned ? 'public, durable, s-maxage=86400' : 'public, durable, s-maxage=20',
+        'netlify-vary': 'query=v',
         'netlify-cache-tag': 'catalog',
       })
     }
@@ -332,6 +359,7 @@ export async function handle(req, ctx) {
         const next = { ...o, statusAt: Date.now() }
         for (const k of allowed) if (k in patch) next[k] = patch[k]
         await store.setJSON(`orders/${c}`, next)
+        await bump(ctx, 'o')
         if (patch.status && patch.status !== o.status && CUSTOMER_PUSH[patch.status]) {
           later(ctx, pushTo(`push/order/${c}`, { ...CUSTOMER_PUSH[patch.status](next), url: '/', tag: `order-${c}` }))
         }
@@ -339,6 +367,7 @@ export async function handle(req, ctx) {
       }
       if (b === 'orders' && c && m === 'DELETE') {
         await Promise.all([store.delete(`orders/${c}`), store.delete(`proofs/${c}`), store.delete(`push/order/${c}`)])
+        await bump(ctx, 'o')
         return json({ ok: true })
       }
       if (b === 'proof' && c && m === 'GET') return json({ dataUrl: (await store.get(`proofs/${c}`)) || null })
@@ -353,6 +382,7 @@ export async function handle(req, ctx) {
             if (full) await store.setJSON(`orders/${o.id}`, { ...full, payment: { ...full.payment, hasProof: false } })
           }),
         )
+        if (old.length) await bump(ctx, 'o')
         return json({ count: old.length })
       }
       if (b === 'products' && c && !d && m === 'PUT') {
@@ -360,12 +390,12 @@ export async function handle(req, ctx) {
         const cur = (await store.get(`products/${c}`, { type: 'json' })) || {}
         const next = { ...cur, ...p, id: c }
         await store.setJSON(`products/${c}`, next)
-        later(ctx, purgeCatalog())
+        await bump(ctx, 'c')
         return json({ product: next })
       }
       if (b === 'products' && c && !d && m === 'DELETE') {
         await Promise.all([store.delete(`products/${c}`), store.delete(`pimg/${c}`)])
-        later(ctx, purgeCatalog())
+        await bump(ctx, 'c')
         return json({ ok: true })
       }
       // פעולה על כמה מוצרים יחד: מחיקה או עדכון מחיר/מלאי
@@ -391,7 +421,7 @@ export async function handle(req, ctx) {
             }),
           )
         } else return fail(400, 'פעולה לא מוכרת')
-        later(ctx, purgeCatalog())
+        await bump(ctx, 'c')
         return json({ ok: true, count: clean.length })
       }
       if (b === 'products' && c && d === 'image' && m === 'PUT') {
@@ -404,19 +434,19 @@ export async function handle(req, ctx) {
         } else await store.delete(`pimg/${c}`)
         const next = { ...cur, imageV: dataUrl ? Date.now() : 0 }
         await store.setJSON(`products/${c}`, next)
-        later(ctx, purgeCatalog())
+        await bump(ctx, 'c')
         return json({ product: next })
       }
       if (b === 'seed' && m === 'POST') {
         await Promise.all(SEED_PRODUCTS.map((p) => store.setJSON(`products/${p.id}`, p, { onlyIfNew: true })))
-        later(ctx, purgeCatalog())
+        await bump(ctx, 'c')
         return json({ ok: true })
       }
       if (b === 'settings' && m === 'PATCH') {
         const patch = await req.json()
         const next = { ...(await getSettings()), ...patch }
         await store.setJSON('meta/settings', next)
-        later(ctx, purgeCatalog())
+        await bump(ctx, 'c')
         return json({ settings: next })
       }
       if (b === 'admins' && !c && m === 'GET') return json({ admins: (await listAdmins()).map(publicAdmin) })

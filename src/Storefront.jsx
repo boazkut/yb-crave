@@ -173,7 +173,7 @@ export function Storefront({ path }) {
   const sheet = ui.sheet
   return (
     <>
-      <BackgroundVideo base={current ? lookOf(current, index).video : 'drinks'} />
+      <BackgroundVideo base={current ? lookOf(current, index).video || 'drinks' : 'drinks'} rotate={!current} />
       <div className="relative z-10 min-h-dvh pb-44">
         {current ? <CategoryView category={current} items={byCategory[current.id] || []} /> : <Home byCategory={byCategory} />}
       </div>
