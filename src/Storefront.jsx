@@ -136,6 +136,7 @@ function DealView({ deal, items }) {
       <main className="mx-auto max-w-5xl px-3 pt-4">
         <ClosedNotice className="mb-3" />
         <ProductGrid products={items} />
+        <InstallCard className="mt-6" />
       </main>
     </>
   )
@@ -163,6 +164,7 @@ function CategoryView({ category, items }) {
         <div className="mt-6 rounded-[22px] bg-white p-4">
           <SupportPhones />
         </div>
+        <InstallCard className="mt-3" />
       </main>
     </>
   )
