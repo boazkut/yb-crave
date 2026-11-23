@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import { ClipboardList, LoaderCircle, LogOut, Package, Settings, Store, Users } from 'lucide-react'
 import { storage } from '../services/storageService.js'
 import { useData } from '../state/DataContext.jsx'
@@ -6,7 +7,8 @@ import { navigate } from '../lib/router.js'
 import { setThemeColor } from '../lib/splash.js'
 import { Logo } from '../components/TopBar.jsx'
 import { AdminToastProvider } from './ui.jsx'
-import { OrdersTab } from './OrdersTab.jsx'
+import { NewOrderBanner, OrdersTab } from './OrdersTab.jsx'
+import { AdminOrdersProvider, useAdminOrders } from './adminOrders.jsx'
 import { ProductsTab } from './ProductsTab.jsx'
 import { AdminsTab } from './AdminsTab.jsx'
 import { SettingsTab } from './SettingsTab.jsx'
@@ -177,11 +179,26 @@ function NoAccess({ auth }) {
 }
 
 function Shell({ auth }) {
+  return (
+    <AdminOrdersProvider>
+      <ShellInner auth={auth} />
+    </AdminOrdersProvider>
+  )
+}
+
+function ShellInner({ auth }) {
   const [tab, setTab] = useState('orders')
   const { mode, settings, catalogEmpty } = useData()
+  const { unreadIds, incoming, clearIncoming } = useAdminOrders()
+  const unread = unreadIds.size
+  const openOrder = (o) => {
+    setTab('orders')
+    setTimeout(() => document.getElementById(`order-${o.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
+  }
 
   return (
     <div className="min-h-dvh pb-28">
+      <AnimatePresence>{incoming && <NewOrderBanner key={incoming.id} order={incoming} onClose={clearIncoming} onOpen={openOrder} />}</AnimatePresence>
       <header className="sticky top-0 z-30 border-b border-line bg-page/95 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-2.5">
           <div className="flex items-center gap-3">
@@ -230,7 +247,17 @@ function Shell({ auth }) {
               aria-current={tab === id ? 'page' : undefined}
               className={`flex flex-col items-center gap-1 py-1.5 text-[12px] ${tab === id ? 'font-semibold text-ink' : 'text-muted'}`}
             >
-              <Icon size={21} strokeWidth={tab === id ? 2.2 : 1.8} />
+              <span className="relative">
+                <Icon size={21} strokeWidth={tab === id ? 2.2 : 1.8} />
+                {id === 'orders' && unread > 0 && (
+                  <span
+                    className="absolute -top-1.5 left-3 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-danger px-1 text-[11px] font-bold leading-none text-white ring-2 ring-white tabular-nums"
+                    aria-label={`${unread} הזמנות שלא נקראו`}
+                  >
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                )}
+              </span>
               {label}
             </button>
           ))}

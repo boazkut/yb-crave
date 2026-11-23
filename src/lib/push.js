@@ -51,3 +51,42 @@ export async function localNotify(title, body) {
     /* לא קריטי */
   }
 }
+
+/**
+ * מבקש הרשאה בתוך הלחיצה עצמה (באייפון חייבים ככה). מחזיר Promise עם התשובה.
+ * לא שואל שוב מי שכבר ענה.
+ */
+export function askPermissionNow() {
+  try {
+    if (pushSupport() !== 'ok') return Promise.resolve('unsupported')
+    if (Notification.permission !== 'default') return Promise.resolve(Notification.permission)
+    return Notification.requestPermission()
+  } catch {
+    return Promise.resolve('unsupported')
+  }
+}
+
+/** מנוי שקט: רק כשכבר יש הרשאה (לא מקפיץ שאלה). מחזיר null אם אין */
+export async function silentSubscription(vapidPublicKey) {
+  try {
+    if (pushSupport() !== 'ok' || Notification.permission !== 'granted' || !vapidPublicKey) return null
+    const reg = (await registerSW()) || (await navigator.serviceWorker.ready)
+    await navigator.serviceWorker.ready
+    let sub = await reg.pushManager.getSubscription()
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(vapidPublicKey) })
+    return sub.toJSON()
+  } catch {
+    return null
+  }
+}
+
+/** העיגול עם המספר על האייקון של האפליקציה (איפה שנתמך) */
+export async function setAppBadge(n) {
+  try {
+    if (n > 0) await navigator.setAppBadge?.(n)
+    else await navigator.clearAppBadge?.()
+    await (await caches.open('ybc-meta')).put('/__badge', new Response(String(n)))
+  } catch {
+    /* לא נתמך */
+  }
+}

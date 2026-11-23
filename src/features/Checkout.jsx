@@ -13,6 +13,8 @@ import { compressImage } from '../lib/imageCompress.js'
 import { copyText, dateKey, ils } from '../lib/utils.js'
 import { openPayApp } from '../lib/payApps.js'
 import { celebrate } from '../lib/celebrate.js'
+import { askPermissionNow } from '../lib/push.js'
+import { connectOrderPush } from '../lib/orderPush.js'
 
 const METHODS = [
   { id: 'paybox', label: 'PayBox', Icon: Wallet },
@@ -176,6 +178,8 @@ function DetailsStep({ onBack, onDone }) {
 
   const submit = async () => {
     if (!validate()) return
+    // שואלים על התראות בתוך הלחיצה עצמה (באייפון אי אפשר אחרת)
+    const permission = storage.saveOrderPush ? askPermissionNow() : null
     setSending(true)
     try {
       const cleanPhone = normalizeIsraeliPhone(phone)
@@ -206,6 +210,7 @@ function DetailsStep({ onBack, onDone }) {
       setMyOrders((list) => [{ id: saved.id, number: saved.number, createdAt: saved.createdAt }, ...(list || [])].slice(0, 15))
       cart.clear()
       celebrate()
+      if (permission) connectOrderPush(saved.id, permission)
       onDone(saved.id)
     } catch (err) {
       console.error(err)

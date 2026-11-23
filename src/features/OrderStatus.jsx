@@ -10,7 +10,8 @@ import { useLocal, LS_KEYS } from '../state/useLocal.js'
 import { storage } from '../services/storageService.js'
 import { ACTIVE_STATUSES, ORDER_STATUS, PAYMENT, statusLabel, waLink } from '../lib/shop.js'
 import { ils, readLS, vibrate, writeLS } from '../lib/utils.js'
-import { localNotify, pushSupport, subscribePush } from '../lib/push.js'
+import { localNotify, pushSupport } from '../lib/push.js'
+import { PUSH_ORDERS, enableOrderPushManually } from '../lib/orderPush.js'
 import { celebrate } from '../lib/celebrate.js'
 
 export function useOrder(id) {
@@ -57,7 +58,7 @@ export function SupportPhones({ light = false, className = '' }) {
 
 function NotifyCard({ orderId }) {
   const ui = useUI()
-  const [state, setState] = useState(() => (typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'maybe' : 'idle'))
+  const [connected] = useLocal(PUSH_ORDERS, [])
   const [busy, setBusy] = useState(false)
   if (!storage.saveOrderPush) return null
   const support = pushSupport()
@@ -66,9 +67,7 @@ function NotifyCard({ orderId }) {
   const enable = async () => {
     setBusy(true)
     try {
-      const sub = await subscribePush(storage.vapidPublicKey)
-      await storage.saveOrderPush(orderId, sub)
-      setState('on')
+      await enableOrderPushManually(orderId)
       ui.toast('מעולה. נודיע לך כשההזמנה מוכנה וכשהיא בדרך')
     } catch (e) {
       ui.toast(e.message)
@@ -77,10 +76,10 @@ function NotifyCard({ orderId }) {
     }
   }
 
-  if (state === 'on') {
+  if ((connected || []).includes(orderId)) {
     return (
       <div className="mt-4 flex items-center gap-3 rounded-2xl bg-[#E7F6EC] px-4 py-3 text-[14px] text-[#15803D]">
-        <BellRing size={18} /> התראות פעילות להזמנה הזאת
+        <BellRing size={18} /> התראות פעילות: נודיע לך כשמוכן וכשיוצאים לחדר
       </div>
     )
   }
@@ -90,9 +89,11 @@ function NotifyCard({ orderId }) {
       <p className="mt-0.5 text-[13px] text-muted">
         {support === 'ios-install'
           ? 'באייפון: לוחצים "שיתוף" ← "הוספה למסך הבית", פותחים מהאייקון ומפעילים כאן.'
-          : 'נשלח לך התראה כשההזמנה מוכנה וכשהיא יוצאת לחדר.'}
+          : support === 'denied'
+            ? 'ההתראות חסומות בדפדפן. אפשר לאפשר אותן בהגדרות האתר (המנעול ליד הכתובת).'
+            : 'נשלח לך התראה כשההזמנה מוכנה וכשהיא יוצאת לחדר.'}
       </p>
-      {support !== 'ios-install' && (
+      {support === 'ok' && (
         <button type="button" onClick={enable} disabled={busy} className="btn-primary mt-3 w-full">
           <Bell size={17} /> {busy ? 'מפעילים...' : 'הפעלת התראות'}
         </button>

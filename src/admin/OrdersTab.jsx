@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Bell, BellOff, BellRing, Check, ImageOff, MessageCircle, MoreHorizontal, Phone, X } from 'lucide-react'
@@ -8,8 +8,8 @@ import { ORDER_STATUS, PAYMENT, formatPhone, toWhatsApp, waLink } from '../lib/s
 import { ils } from '../lib/utils.js'
 import { useLocal } from '../state/useLocal.js'
 import { pushSupport, subscribePush } from '../lib/push.js'
-import { Section, Segmented, StatusBadge, chime, timeAgo, unlockAudio, useToast } from './ui.jsx'
-import { vibrate } from '../lib/utils.js'
+import { Section, Segmented, StatusBadge, timeAgo, unlockAudio, useToast } from './ui.jsx'
+import { useAdminOrders, useSeenOnView, ACTIVE } from './adminOrders.jsx'
 
 export function useAllOrders(days = 7) {
   const [orders, setOrders] = useState(null)
@@ -19,38 +19,37 @@ export function useAllOrders(days = 7) {
 
 function AdminPushCard() {
   const toast = useToast()
-  const [on, setOn] = useLocal('ybc2:adminPushOn', false)
+  const ctx = useAdminOrders()
   const [busy, setBusy] = useState(false)
-  if (!storage.saveAdminPush) return null
+  if (!ctx?.pushSupported || ctx.pushOn) return null
   const support = pushSupport()
-  if (support === 'unsupported') return null
   const enable = async () => {
     setBusy(true)
     try {
-      const sub = await subscribePush(storage.vapidPublicKey)
-      await storage.saveAdminPush(sub)
-      await storage.testAdminPush()
-      setOn(true)
-      toast('התראות פעילות. שלחנו התראת בדיקה')
+      await ctx.enablePush()
+      toast('התראות פעילות. שלחנו התראת בדיקה לטלפון הזה')
     } catch (e) {
       toast(e.message)
     } finally {
       setBusy(false)
     }
   }
-  if (on) return null
   return (
-    <div className="card flex items-center gap-3 p-4">
+    <div className="card flex items-center gap-3 border-ink p-4">
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink text-white">
         <BellRing size={20} />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="font-semibold">התראה על כל הזמנה חדשה</p>
+        <p className="font-semibold">התראה לטלפון על כל הזמנה חדשה</p>
         <p className="text-[13px] text-muted">
-          {support === 'ios-install' ? 'באייפון: "שיתוף" ← "הוספה למסך הבית", ואז מפעילים מהאייקון.' : 'גם כשהאתר סגור. מפעילים פעם אחת בכל טלפון.'}
+          {support === 'ios-install'
+            ? 'באייפון: "שיתוף" ← "הוספה למסך הבית", ואז מפעילים מהאייקון.'
+            : support === 'denied'
+              ? 'ההתראות חסומות. מאפשרים אותן בהגדרות האתר (המנעול ליד הכתובת) ונכנסים שוב.'
+              : 'מגיעה גם כשהאפליקציה סגורה. מפעילים פעם אחת בכל טלפון.'}
         </p>
       </div>
-      {support !== 'ios-install' && (
+      {support === 'ok' && (
         <button type="button" onClick={enable} disabled={busy} className="btn-primary shrink-0 px-3 py-2.5 text-sm">
           {busy ? '...' : 'הפעלה'}
         </button>
@@ -180,9 +179,10 @@ function OrderCard({ order: o }) {
   const approve = () => update({ status: 'preparing', paid: true, rejectReason: '' }, `התשלום של #${o.number} אושר`)
   const reject = (reason) => update({ status: 'rejected', paid: false, rejectReason: reason }, `התשלום של #${o.number} נדחה`)
 
-  const fresh = Date.now() - o.createdAt < 3 * 60_000 && ['awaiting_payment', 'preparing'].includes(o.status)
+  const seen = useSeenOnView(o.id)
+  const fresh = seen.unread || (Date.now() - o.createdAt < 3 * 60_000 && ['awaiting_payment', 'preparing'].includes(o.status))
   return (
-    <article id={`order-${o.id}`} className={`card scroll-mt-24 p-4 ${fresh ? 'border-ink ring-2 ring-ink' : ''}`}>
+    <article ref={seen.ref} id={`order-${o.id}`} className={`card scroll-mt-24 p-4 ${fresh ? 'border-ink ring-2 ring-ink' : ''}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -383,7 +383,6 @@ function Transfers({ orders }) {
   )
 }
 
-const ACTIVE = ['awaiting_payment', 'preparing', 'ready', 'on_the_way']
 const HISTORY = {
   delivered: (o) => o.status === 'delivered',
   rejected: (o) => o.status === 'rejected' || o.status === 'cancelled',
@@ -427,7 +426,7 @@ function StoreSwitch() {
 }
 
 /** הודעה גדולה כשנכנסת הזמנה חדשה בזמן שהעמוד פתוח */
-function NewOrderBanner({ order, onClose }) {
+export function NewOrderBanner({ order, onClose, onOpen }) {
   useEffect(() => {
     const t = setTimeout(onClose, 9000)
     return () => clearTimeout(t)
@@ -439,7 +438,7 @@ function NewOrderBanner({ order, onClose }) {
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: -40, opacity: 0 }}
       onClick={() => {
-        document.getElementById(`order-${order.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        onOpen?.(order)
         onClose()
       }}
       className="fixed inset-x-3 top-3 z-[70] mx-auto flex max-w-3xl items-center gap-3 rounded-2xl bg-ink px-4 py-4 text-right text-white shadow-[0_10px_30px_rgba(0,0,0,.3)]"
@@ -458,28 +457,12 @@ function NewOrderBanner({ order, onClose }) {
 }
 
 export function OrdersTab() {
-  const orders = useAllOrders()
+  const { orders } = useAdminOrders()
   const [history, setHistory] = useState('delivered')
   const [sound, setSound] = useLocal('ybc2:adminSound', true)
-  const [incoming, setIncoming] = useState(null)
-  const known = useRef(null)
-
-  useEffect(() => {
-    if (!orders) return
-    if (known.current) {
-      const fresh = orders.filter((o) => !known.current.has(o.id))
-      if (fresh.length) {
-        if (sound) chime()
-        vibrate([200, 100, 200])
-        setIncoming(fresh[0])
-      }
-    }
-    known.current = new Set(orders.map((o) => o.id))
-  }, [orders, sound])
 
   const active = useMemo(() => (orders || []).filter((o) => ACTIVE.includes(o.status)).sort((a, b) => b.createdAt - a.createdAt), [orders])
   const waiting = active.filter((o) => o.status === 'awaiting_payment').length
-  const closeBanner = useMemo(() => () => setIncoming(null), [])
 
   return (
     <div className="space-y-4">
@@ -538,7 +521,6 @@ export function OrdersTab() {
         </div>
       )}
 
-      <AnimatePresence>{incoming && <NewOrderBanner key={incoming.id} order={incoming} onClose={closeBanner} />}</AnimatePresence>
     </div>
   )
 }

@@ -129,7 +129,8 @@ async function pushTo(key, payload) {
   const s = await secrets()
   webpush.setVapidDetails(env('PUSH_SUBJECT') || 'mailto:noreply@yb-crave.app', s.vapidPublic, s.vapidPrivate)
   try {
-    await webpush.sendNotification(rec.sub, JSON.stringify(payload), { TTL: 60 * 60 })
+    // urgency high: אנדרואיד מעיר את הטלפון מיד, גם במצב חיסכון בסוללה
+    await webpush.sendNotification(rec.sub, JSON.stringify(payload), { TTL: 60 * 60, urgency: 'high' })
   } catch (e) {
     if (e?.statusCode === 404 || e?.statusCode === 410) await store.delete(key)
   }
@@ -164,8 +165,13 @@ const CUSTOMER_PUSH = {
   preparing: (o) => ({ title: 'התשלום אושר', body: `מכינים לך את הזמנה #${o.number}` }),
   ready: (o) => ({ title: 'ההזמנה מוכנה', body: `הזמנה #${o.number} מוכנה, עוד רגע יוצאים אליך` }),
   on_the_way: (o) => ({ title: 'בדרך אליך', body: `הזמנה #${o.number} בדרך לחדר ${o.customer.room}` }),
+  delivered: () => ({ title: 'נמסר. בתיאבון!', body: 'תודה שקנית ב-Y&B CRAVE. מחכים לך בפעם הבאה' }),
   rejected: (o) => ({ title: 'התשלום לא אושר', body: o.rejectReason ? `הסיבה: ${o.rejectReason}` : `לגבי הזמנה #${o.number}` }),
 }
+const THANKS_PUSH = (o) => ({
+  title: 'תודה שקנית ב-Y&B!',
+  body: `קיבלנו את הזמנה #${o.number}. נעדכן אותך כשהיא מוכנה וכשהיא בדרך לחדר ${o.customer.room}`,
+})
 
 // ---------- הזמנות ----------
 const PHONE_RE = /^0(5\d|7\d)\d{7}$|^0[23489]\d{7}$/
@@ -254,7 +260,7 @@ async function createOrder(req, ctx) {
   await store.setJSON(`orders/${id}`, order)
   await bump(ctx, 'o')
   const pm = { paybox: 'PayBox', bit: 'Bit', cash: 'מזומן' }[method]
-  later(ctx, pushAdmins({ title: `הזמנה חדשה #${number}`, body: `${order.customer.name}, חדר ${order.customer.room}: ${total} ₪ ב-${pm}`, url: '/admin', tag: `order-${id}` }))
+  later(ctx, pushAdmins({ title: `הזמנה חדשה #${number}`, body: `${order.customer.name}, חדר ${order.customer.room}: ${total} ₪ ב-${pm}`, url: '/admin', tag: `order-${id}`, kind: 'admin-order' }))
   return json({ id, number, token, createdAt: order.createdAt })
 }
 
@@ -267,11 +273,15 @@ async function getOrderForCustomer(id, req) {
   return json(strip(o))
 }
 
-async function saveCustomerPush(id, req) {
+async function saveCustomerPush(id, req, ctx) {
   const { t, subscription } = await req.json().catch(() => ({}))
-  const o = await db().get(`orders/${id}`, { type: 'json' })
+  const store = db()
+  const o = await store.get(`orders/${id}`, { type: 'json' })
   if (!o || t !== o._token || !subscription?.endpoint) return fail(404, 'לא נמצא')
-  await db().setJSON(`push/order/${id}`, { sub: subscription, at: Date.now() })
+  const first = !(await store.get(`push/order/${id}`))
+  await store.setJSON(`push/order/${id}`, { sub: subscription, at: Date.now() })
+  // בפעם הראשונה: "תודה שקנית" ישר לטלפון
+  if (first) later(ctx, pushTo(`push/order/${id}`, { ...THANKS_PUSH(o), url: '/', tag: `order-${id}` }))
   return json({ ok: true })
 }
 
@@ -332,7 +342,7 @@ export async function handle(req, ctx) {
     if (a === 'orders') {
       if (!b && m === 'POST') return await createOrder(req, ctx)
       if (b && !c && m === 'GET') return await getOrderForCustomer(b, req)
-      if (b && c === 'push' && m === 'POST') return await saveCustomerPush(b, req)
+      if (b && c === 'push' && m === 'POST') return await saveCustomerPush(b, req, ctx)
     }
 
     // ---- מנהלים ----
@@ -483,7 +493,11 @@ export async function handle(req, ctx) {
         return json({ ok: true })
       }
       if (b === 'push-test' && m === 'POST') {
-        await pushAdmins({ title: 'בדיקת התראות', body: 'ככה תיראה התראה על הזמנה חדשה', url: '/admin' })
+        // בדיקה רק למכשיר שהפעיל עכשיו, לא לכל המנהלים
+        const { endpoint } = await req.json().catch(() => ({}))
+        const payload = { title: 'בדיקת התראות', body: 'ככה תיראה התראה על הזמנה חדשה', url: '/admin' }
+        if (endpoint) await pushTo(`push/admin/${crypto.createHash('sha256').update(endpoint).digest('hex').slice(0, 32)}`, payload)
+        else await pushAdmins(payload)
         return json({ ok: true })
       }
     }

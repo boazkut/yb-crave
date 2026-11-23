@@ -260,8 +260,8 @@ export function createCloudAdapter(health) {
     async saveAdminPush(subscription) {
       await api('admin/push', { method: 'POST', admin: true, body: { subscription } })
     },
-    async testAdminPush() {
-      await api('admin/push-test', { method: 'POST', admin: true })
+    async testAdminPush(endpoint) {
+      await api('admin/push-test', { method: 'POST', admin: true, body: { endpoint } })
     },
 
     // ---------- מנהלים: מוצרים והגדרות ----------
