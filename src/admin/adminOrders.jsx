@@ -21,6 +21,7 @@ export function AdminOrdersProvider({ children }) {
   const [incoming, setIncoming] = useState(null)
   const [sound] = useLocal('ybc2:adminSound', true)
   const [pushOn, setPushOn] = useState(false)
+  const [pushChecked, setPushChecked] = useState(false)
   const known = useRef(null)
 
   useEffect(() => storage.subscribeOrders(setOrders, { days: 7 }), [])
@@ -70,15 +71,17 @@ export function AdminOrdersProvider({ children }) {
   // התראות לטלפון: בכל כניסה מחדשים את המנוי בשקט (אם כבר אישרו), כדי שימשיכו להגיע
   useEffect(() => {
     if (!storage.saveAdminPush) return
-    silentSubscription(storage.vapidPublicKey).then(async (sub) => {
-      if (!sub) return
-      try {
-        await storage.saveAdminPush(sub)
-        setPushOn(true)
-      } catch {
-        /* ננסה בכניסה הבאה */
-      }
-    })
+    silentSubscription(storage.vapidPublicKey)
+      .then(async (sub) => {
+        if (!sub) return
+        try {
+          await storage.saveAdminPush(sub)
+          setPushOn(true)
+        } catch {
+          /* ננסה בכניסה הבאה */
+        }
+      })
+      .finally(() => setPushChecked(true))
   }, [])
 
   const enablePush = useCallback(async () => {
@@ -98,10 +101,12 @@ export function AdminOrdersProvider({ children }) {
       incoming,
       clearIncoming,
       pushOn,
+      pushChecked,
+      setPushOn,
       pushSupported: Boolean(storage.saveAdminPush) && pushSupport() !== 'unsupported',
       enablePush,
     }),
-    [orders, unreadIds, markSeen, incoming, clearIncoming, pushOn, enablePush],
+    [orders, unreadIds, markSeen, incoming, clearIncoming, pushOn, pushChecked, enablePush],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

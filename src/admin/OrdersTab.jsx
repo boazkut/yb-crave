@@ -7,55 +7,14 @@ import { storage } from '../services/storageService.js'
 import { ORDER_STATUS, PAYMENT, formatPhone, toWhatsApp, waLink } from '../lib/shop.js'
 import { ils } from '../lib/utils.js'
 import { useLocal } from '../state/useLocal.js'
-import { pushSupport, subscribePush } from '../lib/push.js'
 import { Section, Segmented, StatusBadge, timeAgo, unlockAudio, useToast } from './ui.jsx'
 import { useAdminOrders, useSeenOnView, ACTIVE } from './adminOrders.jsx'
+import { NotifyStatus } from './NotifySetup.jsx'
 
 export function useAllOrders(days = 7) {
   const [orders, setOrders] = useState(null)
   useEffect(() => storage.subscribeOrders(setOrders, { days }), [days])
   return orders
-}
-
-function AdminPushCard() {
-  const toast = useToast()
-  const ctx = useAdminOrders()
-  const [busy, setBusy] = useState(false)
-  if (!ctx?.pushSupported || ctx.pushOn) return null
-  const support = pushSupport()
-  const enable = async () => {
-    setBusy(true)
-    try {
-      await ctx.enablePush()
-      toast('התראות פעילות. שלחנו התראת בדיקה לטלפון הזה')
-    } catch (e) {
-      toast(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <div className="card flex items-center gap-3 border-ink p-4">
-      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink text-white">
-        <BellRing size={20} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold">התראה לטלפון על כל הזמנה חדשה</p>
-        <p className="text-[13px] text-muted">
-          {support === 'ios-install'
-            ? 'באייפון: "שיתוף" ← "הוספה למסך הבית", ואז מפעילים מהאייקון.'
-            : support === 'denied'
-              ? 'ההתראות חסומות. מאפשרים אותן בהגדרות האתר (המנעול ליד הכתובת) ונכנסים שוב.'
-              : 'מגיעה גם כשהאפליקציה סגורה. מפעילים פעם אחת בכל טלפון.'}
-        </p>
-      </div>
-      {support === 'ok' && (
-        <button type="button" onClick={enable} disabled={busy} className="btn-primary shrink-0 px-3 py-2.5 text-sm">
-          {busy ? '...' : 'הפעלה'}
-        </button>
-      )}
-    </div>
-  )
 }
 
 export const paymentState = (o) => (o.paid ? 'approved' : o.status === 'rejected' ? 'rejected' : o.status === 'cancelled' ? 'cancelled' : 'pending')
@@ -467,7 +426,7 @@ export function OrdersTab() {
   return (
     <div className="space-y-4">
       <StoreSwitch />
-      <AdminPushCard />
+      <NotifyStatus />
 
       <div className="flex items-end justify-between gap-3 pt-1">
         <div>

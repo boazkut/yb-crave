@@ -6,6 +6,7 @@ import { PAYMENT } from '../lib/shop.js'
 import { dateKey, ils, uid } from '../lib/utils.js'
 import { useAllOrders } from './OrdersTab.jsx'
 import { InstallCard } from '../components/InstallCard.jsx'
+import { NotifyStatus } from './NotifySetup.jsx'
 import { Section, Segmented, useToast } from './ui.jsx'
 
 function Field({ label, value, onSave, hint, dir }) {
@@ -226,6 +227,8 @@ export function SettingsTab() {
           />
         </div>
       </Section>
+
+      <NotifyStatus full />
 
       <InstallCard className="border border-line" />
 

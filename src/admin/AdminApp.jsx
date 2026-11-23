@@ -9,6 +9,7 @@ import { Logo } from '../components/TopBar.jsx'
 import { AdminToastProvider } from './ui.jsx'
 import { NewOrderBanner, OrdersTab } from './OrdersTab.jsx'
 import { AdminOrdersProvider, useAdminOrders } from './adminOrders.jsx'
+import { NotifyGate } from './NotifySetup.jsx'
 import { ProductsTab } from './ProductsTab.jsx'
 import { AdminsTab } from './AdminsTab.jsx'
 import { SettingsTab } from './SettingsTab.jsx'
@@ -198,6 +199,7 @@ function ShellInner({ auth }) {
 
   return (
     <div className="min-h-dvh pb-28">
+      <NotifyGate />
       <AnimatePresence>{incoming && <NewOrderBanner key={incoming.id} order={incoming} onClose={clearIncoming} onOpen={openOrder} />}</AnimatePresence>
       <header className="sticky top-0 z-30 border-b border-line bg-page/95 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-2.5">

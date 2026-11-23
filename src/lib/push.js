@@ -3,7 +3,7 @@
  * אנדרואיד: עובד ישר מהדפדפן.
  * אייפון: עובד רק אחרי "הוספה למסך הבית" (iOS 16.4 ומעלה), ופותחים את האתר מהאייקון.
  */
-const b64ToBytes = (b64) => {
+export const b64ToBytes = (b64) => {
   const pad = '='.repeat((4 - (b64.length % 4)) % 4)
   const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'))
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)))
