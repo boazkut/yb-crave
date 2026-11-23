@@ -144,7 +144,8 @@ const later = (ctx, p) => (ctx?.waitUntil ? ctx.waitUntil(p.catch(() => {})) : p
 // לכל סוג נתונים יש "גרסה" (c = קטלוג והגדרות, o = הזמנות) שמשתנה בכל כתיבה.
 // הטלפונים בודקים את הגרסאות כל כמה שניות דרך ה-CDN (בלי להפעיל את השרת),
 // ומושכים נתונים רק כשמשהו השתנה. אחרי כל כתיבה מנקים את העותק ב-CDN כדי שהשינוי ייראה מיד.
-const REV_TTL = 5
+// הניקוי ב-CDN עובד (נבדק באתר החי), אז הזמן הזה הוא רק רשת ביטחון
+const REV_TTL = 60
 const purge = async (tags) => {
   try {
     await purgeCache({ tags })
@@ -303,10 +304,6 @@ export async function handle(req, ctx) {
         'netlify-cdn-cache-control': `public, durable, s-maxage=${REV_TTL}`,
         'netlify-cache-tag': 'rev',
       })
-    }
-    if (a === 'diag' && m === 'GET') {
-      const result = await purge(['diag'])
-      return json({ purgeToken: Boolean(env('NETLIFY_PURGE_API_TOKEN')), purge: result }, 200, { 'cache-control': 'no-store' })
     }
     if (a === 'catalog' && m === 'GET') {
       const [products, settings] = await Promise.all([listProducts(), getSettings()])
