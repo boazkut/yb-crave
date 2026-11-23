@@ -11,6 +11,7 @@ import { activeDeals, bundleFor, bundleLabel, saleFor } from '../lib/pricing.js'
 import { dealText, endsText } from '../lib/dealText.js'
 import { CATEGORY_LOOK, TONES } from '../data/catalog.js'
 import { LIMITED, STOCK } from '../lib/shop.js'
+import { MAX_ITEMS, MAX_PER_ITEM } from '../lib/limits.js'
 import { ils } from '../lib/utils.js'
 import { navigate } from '../lib/router.js'
 
@@ -131,6 +132,8 @@ function ProductCardBase({ product: p, canBuy = true, deals }) {
   const add = () => {
     // הקונים לא רואים כמה נשאר: פשוט אי אפשר להוסיף מעבר למה שיש
     if (left !== null && qty >= left) return ui.toast(LIMITED)
+    if (qty >= MAX_PER_ITEM) return ui.toast(`אפשר עד ${MAX_PER_ITEM} מכל מוצר בהזמנה`)
+    if (cart.count >= MAX_ITEMS) return ui.toast(`אפשר עד ${MAX_ITEMS} פריטים בהזמנה`)
     return p.comboSlots ? ui.openSheet('combo', p.id) : cart.addProduct(p)
   }
 

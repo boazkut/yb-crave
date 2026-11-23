@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bell, BellOff, BellRing, Check, ImageOff, MessageCircle, MoreHorizontal, Phone, X } from 'lucide-react'
+import { Ban, Bell, BellOff, BellRing, Check, ImageOff, MessageCircle, MoreHorizontal, Phone, X } from 'lucide-react'
 import { useData } from '../state/DataContext.jsx'
 import { storage } from '../services/storageService.js'
 import { ORDER_STATUS, PAYMENT, formatPhone, toWhatsApp, waLink } from '../lib/shop.js'
@@ -152,6 +152,11 @@ function OrderCard({ order: o }) {
             {fresh && <span className="rounded-full bg-ink px-2 py-0.5 text-[12px] font-bold text-white">חדש</span>}
           </div>
           <p className="mt-2 text-[19px] font-bold leading-tight">{o.customer.name}</p>
+          {o.trust && (
+            <p className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[12px] font-bold ${o.trust.delivered ? 'bg-[#E7F6EC] text-[#15803D]' : 'bg-[#FFF4D6] text-[#8A5A00]'}`}>
+              {o.trust.delivered ? (o.trust.delivered === 1 ? 'קיבל כבר הזמנה אחת' : `קיבל כבר ${o.trust.delivered} הזמנות`) : 'לקוח חדש'}
+            </p>
+          )}
           <p className="mt-1 flex items-center gap-2 text-sm text-muted">
             <span className="rounded-lg bg-ink px-2.5 py-1 text-[17px] font-extrabold text-white">חדר {o.customer.room}</span>
             {timeAgo(o.createdAt)}
@@ -273,6 +278,21 @@ function OrderCard({ order: o }) {
                   }}
                 >
                   מחיקה
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost col-span-2 text-sm text-danger"
+                  onClick={async () => {
+                    if (!window.confirm(`לחסום את ${o.customer.name}?\nההזמנות הפתוחות שלו יבוטלו, והוא לא יוכל להזמין יותר מהמספר הזה ומהטלפון הזה.\nאפשר לבטל את החסימה בהגדרות.`)) return
+                    try {
+                      const n = await storage.blockOrderCustomer(o.id)
+                      toast(`${o.customer.name} נחסם${n ? `, ${n === 1 ? 'הזמנה אחת בוטלה' : `${n} הזמנות בוטלו`}` : ''}`)
+                    } catch {
+                      toast('החסימה נכשלה. נסו שוב.')
+                    }
+                  }}
+                >
+                  <Ban size={15} /> חסימת המזמין
                 </button>
               </div>
             </motion.div>

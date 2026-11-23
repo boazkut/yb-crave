@@ -9,6 +9,7 @@ import { useData } from '../state/DataContext.jsx'
 import { useLocal, LS_KEYS } from '../state/useLocal.js'
 import { storage } from '../services/storageService.js'
 import { LIMITED, normalizeIsraeliPhone } from '../lib/shop.js'
+import { LINKISH, MAX_ITEMS, MAX_PER_ITEM, nameProblem } from '../lib/limits.js'
 import { compressImage } from '../lib/imageCompress.js'
 import { copyText, dateKey, ils } from '../lib/utils.js'
 import { openPayApp } from '../lib/payApps.js'
@@ -159,6 +160,8 @@ function CartStep({ onNext, onClose }) {
               onInc={() => {
                 const left = Number.isInteger(byId[l.productId]?.qty) ? byId[l.productId].qty : null
                 if (left !== null && l.qty >= left) return ui.toast(LIMITED)
+                if (cart.qtyOf(l.productId) >= MAX_PER_ITEM) return ui.toast(`אפשר עד ${MAX_PER_ITEM} מכל מוצר בהזמנה`)
+                if (cart.count >= MAX_ITEMS) return ui.toast(`אפשר עד ${MAX_ITEMS} פריטים בהזמנה`)
                 cart.setQty(l.key, l.qty + 1)
               }}
             />
@@ -218,9 +221,12 @@ function DetailsStep({ onBack, onDone }) {
 
   const validate = () => {
     const e = {}
-    if (!name.trim() || name.trim().length < 2) e.name = 'צריך שם מלא'
+    const badName = nameProblem(name)
+    if (badName) e.name = badName
     if (!normalizeIsraeliPhone(phone)) e.phone = 'צריך מספר טלפון ישראלי תקין'
     if (!room.trim()) e.room = 'צריך מספר חדר או כיתה'
+    else if (LINKISH.test(room)) e.room = 'מספר חדר לא תקין'
+    if (LINKISH.test(note)) e.note = 'בלי קישורים בהערה'
     if (method === 'paybox' && !proof) e.proof = 'בתשלום ב-PayBox צריך לצרף צילום מסך של האישור'
     setErrors(e)
     return Object.keys(e).length === 0
@@ -315,7 +321,8 @@ function DetailsStep({ onBack, onDone }) {
         <label className="label" htmlFor="f-note">
           הערה או שעת מסירה מועדפת <span className="font-normal text-muted">(לא חובה)</span>
         </label>
-        <textarea id="f-note" rows={2} className="field resize-none" value={note} onChange={(e) => setNote(e.target.value)} placeholder="למשל: בהפסקה של 10:00" />
+        <textarea id="f-note" rows={2} maxLength={200} className={`${fieldClass('note')} resize-none`} value={note} onChange={(e) => setNote(e.target.value)} placeholder="למשל: בהפסקה של 10:00" />
+        {errors.note && <p className="error">{errors.note}</p>}
       </div>
 
       <div>

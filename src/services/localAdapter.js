@@ -119,6 +119,22 @@ export function createLocalAdapter() {
     async updateOrder(id, patch) {
       setOrders(getOrders().map((o) => (o.id === id ? { ...o, ...patch, statusAt: Date.now() } : o)))
     },
+    // מצב דמו: חסימה פשוטה לפי מספר טלפון, נשמרת בטלפון הזה
+    async blockOrderCustomer(id) {
+      const o = getOrders().find((x) => x.id === id)
+      if (!o) return 0
+      writeLS('ybc2:blocks', [...readLS('ybc2:blocks', []), { id: uid('b_'), name: o.customer.name, phone: o.customer.phone, room: o.customer.room, at: Date.now(), by: '' }])
+      const open = ['awaiting_payment', 'preparing', 'ready', 'on_the_way']
+      const hit = getOrders().filter((x) => x.customer.phone === o.customer.phone && open.includes(x.status))
+      setOrders(getOrders().map((x) => (hit.includes(x) ? { ...x, status: 'cancelled', paid: false, statusAt: Date.now() } : x)))
+      return hit.length
+    },
+    async listBlocks() {
+      return [...readLS('ybc2:blocks', [])].reverse()
+    },
+    async unblock(id) {
+      writeLS('ybc2:blocks', readLS('ybc2:blocks', []).filter((b) => b.id !== id))
+    },
     async deleteOrder(id) {
       const proofs = getProofs()
       delete proofs[id]

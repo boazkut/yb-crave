@@ -13,6 +13,9 @@
  *   admins/<id>            מנהל: שם, תפקיד, קוד אישי מוצפן
  *   push/admin/<hash>      מנוי התראות של מכשיר מנהל
  *   push/order/<id>        מנוי התראות של לקוח להזמנה מסוימת
+ *   guard/ph|dv/<hash>     הזמנות אחרונות של טלפון / מכשיר (הגבלת הטרדות)
+ *   cust/<hash>            כמה הזמנות של המספר הזה כבר הגיעו ("לקוח חדש" אצל המנהלים)
+ *   meta/blocks            מזמינים שהמנהלים חסמו
  */
 import crypto from 'node:crypto'
 import * as webpush from 'web-push'
@@ -21,6 +24,7 @@ import { db } from './store.mjs'
 import { SEED_PRODUCTS, DEFAULT_CATEGORIES, REMOVED_CATEGORIES } from '../../src/data/catalog.js'
 import { DEFAULT_SETTINGS, withSettingsDefaults } from '../../src/services/defaults.js'
 import { priceCart } from '../../src/lib/pricing.js'
+import { MAX_PER_ITEM, MAX_ITEMS, nameProblem, LINKISH } from '../../src/lib/limits.js'
 
 const env = (k) => globalThis.Netlify?.env?.get?.(k) ?? process.env[k]
 const json = (data, status = 200, headers = {}) =>
@@ -355,6 +359,70 @@ async function reserveNumber() {
   return 1000 + Math.floor(Math.random() * 9000)
 }
 
+
+// ---------- הגנה מהטרדות ----------
+// לכל מספר טלפון ולכל מכשיר: עד 2 הזמנות פתוחות בבת אחת ועד 4 הזמנות בשעה.
+// מנהל יכול לחסום מזמין מתוך ההזמנה: המספר והמכשיר שלו לא יוכלו להזמין יותר.
+// לא מגבילים לפי כתובת רשת: בפנימייה / בבית ספר כולם יוצאים מאותה כתובת.
+const GUARD = { openMax: 2, hourMax: 4 }
+const OPEN = ['awaiting_payment', 'preparing', 'ready', 'on_the_way']
+const DEVICE_RE = /^[A-Za-z0-9_-]{16,64}$/
+const DAY = 86_400_000
+
+async function hashOf(kind, value) {
+  const { authSecret } = await secrets()
+  return crypto.createHmac('sha256', authSecret).update(`${kind}:${value}`).digest('hex').slice(0, 24)
+}
+
+/** עדכון JSON בבטחה גם כששתי בקשות מגיעות יחד. fn מחזיר undefined = בלי שינוי */
+async function updateJSON(key, fn) {
+  const store = db()
+  for (let i = 0; i < 8; i += 1) {
+    const res = await store.getWithMetadata(key, { type: 'json' })
+    const cur = res?.data ?? null
+    const next = fn(cur)
+    if (next === undefined) return cur
+    const w = res ? await store.setJSON(key, next, { onlyIfMatch: res.etag }) : await store.setJSON(key, next, { onlyIfNew: true })
+    if (w.modified) return next
+  }
+  return null
+}
+
+async function readBlocks() {
+  return (await db().get('meta/blocks', { type: 'json' }))?.list || []
+}
+
+/** 'open' / 'hour' אם צריך לעצור, אחרת null */
+async function guardCheck(keys) {
+  const store = db()
+  const now = Date.now()
+  for (const k of keys) {
+    const recent = ((await store.get(k, { type: 'json' }))?.recent || []).filter((x) => now - x.at < DAY)
+    if (recent.filter((x) => now - x.at < 3_600_000).length >= GUARD.hourMax) return 'hour'
+    const orders = await Promise.all(recent.slice(-8).map((x) => store.get(`orders/${x.id}`, { type: 'json' })))
+    if (orders.filter((o) => o && OPEN.includes(o.status)).length >= GUARD.openMax) return 'open'
+  }
+  return null
+}
+function guardRecord(keys, id) {
+  const at = Date.now()
+  return Promise.all(keys.map((k) => updateJSON(k, (cur) => ({ recent: [...(cur?.recent || []).filter((x) => at - x.at < DAY), { id, at }].slice(-20) }))))
+}
+
+/** פעם אחת: סופרים הזמנות שכבר הגיעו לכל מספר, כדי שלקוחות ותיקים לא יופיעו כ"חדשים" */
+async function backfillCustomers() {
+  const store = db()
+  const { modified } = await store.set('meta/custV1', String(Date.now()), { onlyIfNew: true })
+  if (!modified) return
+  const counts = {}
+  for (const o of await listOrders(0)) {
+    if (o.status !== 'delivered' || !o.customer?.phone) continue
+    const ph = await hashOf('ph', o.customer.phone)
+    counts[ph] = (counts[ph] || 0) + 1
+  }
+  await Promise.all(Object.entries(counts).map(([ph, d]) => store.setJSON(`cust/${ph}`, { d })))
+}
+
 async function createOrder(req, ctx) {
   const body = await req.json().catch(() => null)
   if (!body?.order) return fail(400, 'הזמנה לא תקינה')
@@ -362,9 +430,12 @@ async function createOrder(req, ctx) {
   if (!settings.storeOpen) return fail(403, 'החנות סגורה כרגע')
   const o = body.order
   const c = o.customer || {}
-  if (!String(c.name || '').trim()) return fail(400, 'חסר שם')
+  const badName = nameProblem(c.name)
+  if (badName) return fail(400, badName)
   if (!PHONE_RE.test(String(c.phone || ''))) return fail(400, 'מספר טלפון לא תקין')
-  if (!String(c.room || '').trim()) return fail(400, 'חסר מספר חדר')
+  const room = String(c.room || '').trim()
+  if (!room || room.length > 20 || LINKISH.test(room)) return fail(400, 'מספר חדר לא תקין')
+  if (LINKISH.test(String(c.note || ''))) return fail(400, 'בלי קישורים בהערה')
   if (!Array.isArray(o.lines) || !o.lines.length || o.lines.length > 60) return fail(400, 'ההזמנה ריקה')
   const method = o.payment?.method
   if (!['paybox', 'bit', 'cash'].includes(method)) return fail(400, 'אמצעי תשלום לא תקין')
@@ -372,12 +443,27 @@ async function createOrder(req, ctx) {
   if (method === 'paybox' && !proof) return fail(400, 'צריך לצרף צילום של אישור התשלום')
   if (proof && proof.length > 900_000) return fail(413, 'התמונה גדולה מדי')
 
+  // חסומים, ומי ששולח יותר מדי
+  const device = typeof body.device === 'string' && DEVICE_RE.test(body.device) ? body.device : ''
+  const ph = await hashOf('ph', c.phone)
+  const dv = device ? await hashOf('dv', device) : ''
+  if ((await readBlocks()).some((x) => x.ph === ph || (dv && x.dv === dv))) {
+    const help = settings.supportPhones?.[0]
+    // מספר הטלפון מבודד (LRI/PDI) ובלי שבירת שורה במקף, כדי שלא יתהפך בתוך עברית
+    const num = help ? `\u2066${String(help).replace(/-/g, '\u2011')}\u2069` : ''
+    return fail(403, `אי אפשר להזמין מהמכשיר הזה.${num ? ` אם זו טעות: ${num}` : ''}`, { code: 'BLOCKED' })
+  }
+  const guardKeys = [`guard/ph/${ph}`, ...(dv ? [`guard/dv/${dv}`] : [])]
+  const tooMany = await guardCheck(guardKeys)
+  if (tooMany === 'open') return fail(429, 'כבר יש 2 הזמנות בטיפול. אפשר להזמין שוב אחרי שאחת מהן תגיע.', { code: 'TOO_MANY_OPEN' })
+  if (tooMany === 'hour') return fail(429, 'יותר מדי הזמנות בזמן קצר. נסו שוב מאוחר יותר.', { code: 'TOO_MANY' })
+
   // בדיקת מחירים מול הקטלוג בשרת
   const products = Object.fromEntries((await listProducts()).map((p) => [p.id, p]))
   const raw = []
   for (const l of o.lines) {
     if (l.kind === 'bag') return fail(400, 'שקית בהרכבה כבר לא זמינה. מוחקים אותה מההזמנה ומנסים שוב.')
-    const qty = Math.max(1, Math.min(50, Math.floor(Number(l.qty) || 0)))
+    const qty = Math.max(1, Math.min(MAX_PER_ITEM + 1, Math.floor(Number(l.qty) || 0)))
     const p = products[l.productId]
     if (!p) return fail(409, `המוצר "${String(l.name || '').slice(0, 40)}" כבר לא קיים. רעננו את הדף.`)
     if (p.stock === 'out') return fail(409, `"${p.name}" אזל בינתיים`)
@@ -393,6 +479,8 @@ async function createOrder(req, ctx) {
   // הורדה מהמלאי (רק מוצרים שנספרים). אם משהו חסר — מחזירים את מה שכבר נלקח ומסבירים
   const want = {}
   for (const l of raw) want[l.productId] = (want[l.productId] || 0) + l.qty
+  if (Object.values(want).some((n) => n > MAX_PER_ITEM)) return fail(400, `אפשר עד ${MAX_PER_ITEM} מכל מוצר בהזמנה אחת`)
+  if (Object.values(want).reduce((a, n) => a + n, 0) > MAX_ITEMS) return fail(400, `אפשר עד ${MAX_ITEMS} פריטים בהזמנה אחת`)
   const taken = []
   for (const [pid, n] of Object.entries(want)) {
     if (!tracked(products[pid])) continue
@@ -411,6 +499,8 @@ async function createOrder(req, ctx) {
   const id = `${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}`
   const token = crypto.randomBytes(18).toString('base64url')
   const number = await reserveNumber()
+  await backfillCustomers()
+  const delivered = (await db().get(`cust/${ph}`, { type: 'json' }))?.d || 0
   const order = {
     id,
     number,
@@ -419,7 +509,7 @@ async function createOrder(req, ctx) {
     customer: {
       name: String(c.name).trim().slice(0, 60),
       phone: String(c.phone),
-      room: String(c.room).trim().slice(0, 20),
+      room,
       note: String(c.note || '').trim().slice(0, 200),
     },
     lines,
@@ -432,11 +522,14 @@ async function createOrder(req, ctx) {
     paid: false,
     rejectReason: '',
     statusAt: Date.now(),
+    trust: { delivered },
+    guard: { ph, dv },
     _token: token,
   }
   const store = db()
   if (proof) await store.set(`proofs/${id}`, proof)
   await store.setJSON(`orders/${id}`, order)
+  await guardRecord(guardKeys, id)
   await bump(ctx, 'o')
   if (taken.length) await bump(ctx, 'c')
   const pm = { paybox: 'PayBox', bit: 'Bit', cash: 'מזומן' }[method]
@@ -444,7 +537,7 @@ async function createOrder(req, ctx) {
   return json({ id, number, token, createdAt: order.createdAt })
 }
 
-const strip = ({ _token, ...o }) => o
+const strip = ({ _token, guard, ...o }) => o
 
 async function getOrderForCustomer(id, req) {
   const t = new URL(req.url).searchParams.get('t') || ''
@@ -465,13 +558,13 @@ async function saveCustomerPush(id, req, ctx) {
   return json({ ok: true })
 }
 
-async function listOrders(days) {
+async function listOrders(days, { raw = false } = {}) {
   const store = db()
   const { blobs } = await store.list({ prefix: 'orders/' })
   const cutoff = days ? Date.now() - days * 86400000 : 0
   const keys = blobs.map((b) => b.key).filter((k) => parseInt(k.slice(7).split('-')[0], 36) >= cutoff)
   const all = await Promise.all(keys.map((k) => store.get(k, { type: 'json' })))
-  return all.filter(Boolean).map(strip).sort((a, b) => b.createdAt - a.createdAt)
+  return all.filter(Boolean).map(raw ? (o) => o : strip).sort((a, b) => b.createdAt - a.createdAt)
 }
 
 // ---------- ראוטר ----------
@@ -569,12 +662,53 @@ export async function handle(req, ctx) {
           stockMoved = true
         }
         await store.setJSON(`orders/${c}`, next)
+        // כמה הזמנות של המספר הזה הגיעו (מוצג למנהלים: "לקוח חדש" / "קיבל כבר N")
+        if ((next.status === 'delivered') !== (o.status === 'delivered')) {
+          const ph = o.guard?.ph || (await hashOf('ph', o.customer.phone))
+          const step = next.status === 'delivered' ? 1 : -1
+          await updateJSON(`cust/${ph}`, (cur) => ({ d: Math.max(0, (cur?.d || 0) + step) }))
+        }
         await bump(ctx, 'o')
         if (stockMoved) await bump(ctx, 'c')
         if (patch.status && patch.status !== o.status && CUSTOMER_PUSH[patch.status]) {
           later(ctx, pushTo(`push/order/${c}`, { ...CUSTOMER_PUSH[patch.status](next), url: '/', tag: `order-${c}` }))
         }
         return json({ order: strip(next) })
+      }
+      // חסימת מזמין: המספר והמכשיר שלו לא יוכלו להזמין, וההזמנות הפתוחות שלו מתבטלות
+      if (b === 'orders' && c && d === 'block' && m === 'POST') {
+        const o = await store.get(`orders/${c}`, { type: 'json' })
+        if (!o) return fail(404, 'לא נמצא')
+        const ph = o.guard?.ph || (await hashOf('ph', o.customer.phone))
+        const dv = o.guard?.dv || ''
+        const entry = { id: crypto.randomBytes(6).toString('hex'), ph, dv, name: o.customer.name, phone: o.customer.phone, room: o.customer.room, at: Date.now(), by: admin.name }
+        await updateJSON('meta/blocks', (cur) => {
+          const list = cur?.list || []
+          if (list.some((x) => x.ph === ph && x.dv === dv)) return undefined
+          return { list: [...list, entry].slice(-300) }
+        })
+        const mine = (x) => x.customer?.phone === o.customer.phone || x.guard?.ph === ph || (dv && x.guard?.dv === dv)
+        const open = (await listOrders(7, { raw: true })).filter((x) => OPEN.includes(x.status) && mine(x))
+        let stockMoved = false
+        for (const x of open) {
+          const next = { ...x, status: 'cancelled', paid: false, statusAt: Date.now() }
+          if (x.stock?.length && !x.stockReturned) {
+            await returnStock(x)
+            next.stockReturned = true
+            stockMoved = true
+          }
+          await store.setJSON(`orders/${x.id}`, next)
+        }
+        await bump(ctx, 'o')
+        if (stockMoved) await bump(ctx, 'c')
+        return json({ ok: true, cancelled: open.length })
+      }
+      if (b === 'blocks' && !c && m === 'GET') {
+        return json({ blocks: (await readBlocks()).map(({ ph, dv, ...x }) => x).reverse() })
+      }
+      if (b === 'blocks' && c && m === 'DELETE') {
+        await updateJSON('meta/blocks', (cur) => ({ list: (cur?.list || []).filter((x) => x.id !== c) }))
+        return json({ ok: true })
       }
       if (b === 'orders' && c && m === 'DELETE') {
         const o = await store.get(`orders/${c}`, { type: 'json' })

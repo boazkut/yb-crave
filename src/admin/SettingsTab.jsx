@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { useData } from '../state/DataContext.jsx'
 import { storage } from '../services/storageService.js'
-import { PAYMENT } from '../lib/shop.js'
+import { PAYMENT, formatPhone } from '../lib/shop.js'
 import { dateKey, ils, uid } from '../lib/utils.js'
 import { useAllOrders } from './OrdersTab.jsx'
 import { InstallCard } from '../components/InstallCard.jsx'
@@ -197,6 +197,56 @@ function MyCode() {
   )
 }
 
+
+function Blocked() {
+  const toast = useToast()
+  const [list, setList] = useState(null)
+  const load = () =>
+    storage
+      .listBlocks()
+      .then(setList)
+      .catch(() => setList([]))
+  useEffect(() => {
+    load()
+  }, [])
+  return (
+    <Section title="מזמינים חסומים">
+      {list === null ? (
+        <p className="text-sm text-muted">טוען...</p>
+      ) : list.length === 0 ? (
+        <p className="text-sm text-muted">אין חסומים. חוסמים מתוך הזמנה: "עוד" ואז "חסימת המזמין".</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {list.map((b) => (
+            <li key={b.id} className="flex items-center justify-between gap-3 py-2.5">
+              <div className="min-w-0">
+                <p className="truncate font-semibold">
+                  {b.name}<span className="font-normal text-muted">, חדר {b.room}</span>
+                </p>
+                <p className="text-[13px] text-muted" dir="ltr">
+                  {formatPhone(b.phone)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary shrink-0 px-3 py-2 text-sm"
+                onClick={async () => {
+                  await storage.unblock(b.id)
+                  toast(`${b.name} יכול להזמין שוב`)
+                  load()
+                }}
+              >
+                ביטול חסימה
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="hint mt-2">חסימה תופסת את מספר הטלפון ואת המכשיר שממנו הוזמן.</p>
+    </Section>
+  )
+}
+
 export function SettingsTab() {
   const { settings, mode } = useData()
   const toast = useToast()
@@ -233,6 +283,8 @@ export function SettingsTab() {
       <InstallCard className="border border-line" />
 
       <Finance />
+
+      <Blocked />
 
       <MyCode />
 

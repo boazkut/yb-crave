@@ -6,6 +6,7 @@
  */
 import { withSettingsDefaults } from './defaults.js'
 import { readLS, writeLS } from '../lib/utils.js'
+import { deviceId } from '../lib/device.js'
 
 const TOKEN_KEY = 'ybc2:adminToken'
 const ORDER_TOKENS = 'ybc2:orderTokens'
@@ -251,7 +252,7 @@ export function createCloudAdapter(health) {
       return 'cloud'
     },
     async createOrder(order, proofDataUrl) {
-      const res = await api('orders', { method: 'POST', body: { order, proof: proofDataUrl || null } })
+      const res = await api('orders', { method: 'POST', body: { order, proof: proofDataUrl || null, device: deviceId() } })
       writeLS(ORDER_TOKENS, { ...readLS(ORDER_TOKENS, {}), [res.id]: res.token })
       return { ...order, id: res.id, number: res.number, createdAt: res.createdAt }
     },
@@ -326,6 +327,19 @@ export function createCloudAdapter(health) {
     async deleteOrder(id) {
       await api(`admin/orders/${encodeURIComponent(id)}`, { method: 'DELETE', admin: true })
       subs.refresh.forEach((f) => f())
+    },
+    /** חסימת מי ששלח את ההזמנה. מחזיר כמה הזמנות פתוחות שלו בוטלו */
+    async blockOrderCustomer(id) {
+      const { cancelled } = await api(`admin/orders/${encodeURIComponent(id)}/block`, { method: 'POST', admin: true })
+      subs.refresh.forEach((f) => f())
+      return cancelled
+    },
+    async listBlocks() {
+      const { blocks } = await api('admin/blocks', { admin: true })
+      return blocks
+    },
+    async unblock(id) {
+      await api(`admin/blocks/${encodeURIComponent(id)}`, { method: 'DELETE', admin: true })
     },
     onOrdersChanged(f) {
       subs.refresh.add(f)
