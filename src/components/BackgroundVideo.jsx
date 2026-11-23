@@ -2,81 +2,82 @@ import { useEffect, useRef, useState } from 'react'
 
 /**
  * רקע וידאו לכל האפליקציה.
- * בכל החלקה (כל ~600px גלילה) הרקע "חותך" לקליפ הבא עם זום-אין והבזק קצר, כמו באדיט.
- * גלילה מהירה מאיצה את הקליפ. רק קליפ אחד מתנגן בכל רגע, כדי שהטלפון לא ייתקע.
+ * כל הסרטונים מתחלפים: כל כמה שניות, וגם בכל קטע גלילה — "חיתוך" לקליפ הבא עם זום קצר והבזק, כמו באדיט.
+ * רק קליפ אחד מתנגן בכל רגע והבא בתור כבר נטען, כדי שהטלפון לא ייתקע.
  */
 const CLIPS = {
   drinks: { src: '/media/bg-drinks.mp4', poster: '/media/poster-drinks.jpg' },
-  sweets: { src: '/media/bg-sweets.mp4', poster: '/media/poster-sweets.jpg' },
-  salty: { src: '/media/bg-salty.mp4', poster: '/media/poster-salty.jpg' },
   candy: { src: '/media/bg-candy.mp4', poster: '/media/poster-candy.jpg' },
+  salty: { src: '/media/bg-salty.mp4', poster: '/media/poster-salty.jpg' },
+  sweets: { src: '/media/bg-sweets.mp4', poster: '/media/poster-sweets.jpg' },
 }
 const ORDER = ['drinks', 'candy', 'salty', 'sweets']
-const STEP = 620
+const EVERY_MS = 4200 // חיתוך אוטומטי
+const SCROLL_STEP = 380 // חיתוך בגלילה
 
 const lowPower = () =>
   typeof window !== 'undefined' &&
   (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || navigator.connection?.saveData === true)
 
 export function BackgroundVideo({ base = 'drinks' }) {
-  const [active, setActive] = useState(base)
-  const [cut, setCut] = useState(0)
+  const startIdx = Math.max(0, ORDER.indexOf(base))
+  const [idx, setIdx] = useState(startIdx)
   const refs = useRef({})
   const still = useRef(lowPower()).current
-  const baseIdx = Math.max(0, ORDER.indexOf(base))
+  const lastCut = useRef(performance.now())
+  const active = ORDER[idx]
+  const next = ORDER[(idx + 1) % ORDER.length]
 
-  // בחירת הקליפ לפי הגלילה
+  // דף קטגוריה מתחיל מהסרטון שלה
   useEffect(() => {
-    let raf = 0
+    setIdx(startIdx)
+  }, [startIdx])
+
+  const cut = () => {
+    lastCut.current = performance.now()
+    setIdx((i) => (i + 1) % ORDER.length)
+  }
+
+  // חיתוך לפי זמן
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.hidden) return
+      if (performance.now() - lastCut.current >= EVERY_MS - 50) cut()
+    }, 500)
+    return () => clearInterval(t)
+  }, [])
+
+  // חיתוך לפי גלילה (לכל כיוון)
+  useEffect(() => {
     let lastY = window.scrollY
-    let lastT = performance.now()
-    let idle = 0
+    let acc = 0
     const onScroll = () => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        const y = window.scrollY
-        const next = ORDER[(baseIdx + Math.floor(Math.max(0, y) / STEP)) % ORDER.length]
-        setActive((cur) => (cur === next ? cur : next))
-        // האצה לפי מהירות הגלילה
-        const now = performance.now()
-        const speed = Math.abs(y - lastY) / Math.max(16, now - lastT)
-        lastY = y
-        lastT = now
-        const v = refs.current[next]
-        if (v && !still) v.playbackRate = Math.min(2.2, 1 + speed * 0.9)
-        clearTimeout(idle)
-        idle = setTimeout(() => {
-          if (refs.current[next]) refs.current[next].playbackRate = 1
-        }, 180)
-      })
+      const y = window.scrollY
+      acc += Math.abs(y - lastY)
+      lastY = y
+      if (acc >= SCROLL_STEP && performance.now() - lastCut.current > 280) {
+        acc = 0
+        cut()
+      }
     }
-    onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      window.removeEventListener('scroll', onScroll)
-      cancelAnimationFrame(raf)
-      clearTimeout(idle)
-    }
-  }, [baseIdx, still])
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
-  // מנגנים רק את הקליף הפעיל
+  // מנגנים רק את הקליפ הפעיל, עם זום קצר (בלי פילטרים כבדים)
   useEffect(() => {
-    setCut((c) => c + 1)
     if (still) return
     for (const key of ORDER) {
       const v = refs.current[key]
       if (!v) continue
       if (key === active) {
-        v.currentTime = 0
+        try {
+          v.currentTime = 0
+        } catch {
+          /* עוד לא נטען */
+        }
         v.play().catch(() => {})
-        v.animate?.(
-          [
-            { transform: 'scale(1.24) rotate(-1.5deg)', filter: 'brightness(1.45) saturate(1.3)' },
-            { transform: 'scale(1.06) rotate(0deg)', filter: 'brightness(1) saturate(1)' },
-          ],
-          { duration: 460, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' },
-        )
+        v.animate?.([{ transform: 'scale(1.2)' }, { transform: 'scale(1.06)' }], { duration: 420, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' })
       } else v.pause()
     }
   }, [active, still])
@@ -95,12 +96,18 @@ export function BackgroundVideo({ base = 'drinks' }) {
   }, [active, still])
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-ink" aria-hidden="true">
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-0 h-screen overflow-hidden bg-[#161616]" style={{ height: '100lvh' }} aria-hidden="true">
       {ORDER.map((key) => {
         const on = key === active
-        const style = { opacity: on ? 1 : 0, visibility: on ? 'visible' : 'hidden' }
+        const style = { opacity: on ? 1 : 0 }
         return still ? (
-          <img key={key} src={CLIPS[key].poster} alt="" className="absolute inset-0 h-full w-full scale-105 object-cover" style={style} />
+          <img
+            key={key}
+            src={CLIPS[key].poster}
+            alt=""
+            className="absolute inset-0 h-full w-full scale-105 object-cover transition-opacity duration-700"
+            style={style}
+          />
         ) : (
           <video
             key={key}
@@ -113,12 +120,12 @@ export function BackgroundVideo({ base = 'drinks' }) {
             loop
             playsInline
             autoPlay={on}
-            preload={on ? 'auto' : 'metadata'}
+            preload={on || key === next ? 'auto' : 'metadata'}
             disablePictureInPicture
           />
         )
       })}
-      {!still && <div key={`flash-${cut}`} className="bg-flash absolute inset-0 bg-white" />}
+      {!still && <div key={`flash-${idx}`} className="bg-flash absolute inset-0 bg-white" />}
       <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/20 to-black/55" />
     </div>
   )

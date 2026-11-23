@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Bell, BellOff, BellRing, Check, ImageOff, MessageCircle, MoreHorizontal, Phone, X } from 'lucide-react'
+import { useData } from '../state/DataContext.jsx'
 import { storage } from '../services/storageService.js'
 import { ORDER_STATUS, PAYMENT, formatPhone, toWhatsApp, waLink } from '../lib/shop.js'
 import { ils } from '../lib/utils.js'
 import { useLocal } from '../state/useLocal.js'
 import { pushSupport, subscribePush } from '../lib/push.js'
 import { Section, Segmented, StatusBadge, chime, timeAgo, unlockAudio, useToast } from './ui.jsx'
+import { vibrate } from '../lib/utils.js'
 
 export function useAllOrders(days = 7) {
   const [orders, setOrders] = useState(null)
@@ -178,24 +180,27 @@ function OrderCard({ order: o }) {
   const approve = () => update({ status: 'preparing', paid: true, rejectReason: '' }, `התשלום של #${o.number} אושר`)
   const reject = (reason) => update({ status: 'rejected', paid: false, rejectReason: reason }, `התשלום של #${o.number} נדחה`)
 
+  const fresh = Date.now() - o.createdAt < 3 * 60_000 && ['awaiting_payment', 'preparing'].includes(o.status)
   return (
-    <article className="card p-4">
+    <article id={`order-${o.id}`} className={`card scroll-mt-24 p-4 ${fresh ? 'border-ink ring-2 ring-ink' : ''}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-lg font-bold tabular-nums" dir="ltr">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[34px] font-extrabold leading-none tabular-nums" dir="ltr">
               #{o.number}
             </span>
             <StatusBadge status={o.status}>{ORDER_STATUS[o.status]?.admin}</StatusBadge>
+            {fresh && <span className="rounded-full bg-ink px-2 py-0.5 text-[12px] font-bold text-white">חדש</span>}
           </div>
-          <p className="mt-1 text-[15px] font-semibold">{o.customer.name}</p>
-          <p className="text-sm text-muted">
-            חדר {o.customer.room} | {timeAgo(o.createdAt)}
+          <p className="mt-2 text-[19px] font-bold leading-tight">{o.customer.name}</p>
+          <p className="mt-1 flex items-center gap-2 text-sm text-muted">
+            <span className="rounded-lg bg-ink px-2.5 py-1 text-[17px] font-extrabold text-white">חדר {o.customer.room}</span>
+            {timeAgo(o.createdAt)}
           </p>
         </div>
-        <div className="text-left">
-          <p className="text-lg font-bold">{ils(o.total)}</p>
-          <p className="text-[13px] text-muted">{PAYMENT[o.payment?.method]?.label}</p>
+        <div className="shrink-0 text-left">
+          <p className="text-[26px] font-extrabold leading-none">{ils(o.total)}</p>
+          <p className="mt-1 text-[14px] font-medium text-muted">{PAYMENT[o.payment?.method]?.label}</p>
         </div>
       </div>
 
@@ -210,16 +215,16 @@ function OrderCard({ order: o }) {
         )}
       </div>
 
-      <ul className="mt-3 space-y-1 rounded-xl bg-tile px-3 py-2.5 text-sm">
+      <ul className="mt-3 space-y-1.5 rounded-xl bg-tile px-3.5 py-3 text-[17px]">
         {o.lines.map((l, i) => (
           <li key={i}>
             <span className="font-semibold">{l.qty}×</span> {l.name}
-            {l.details?.length > 0 && <span className="block pr-5 text-[12px] text-muted">{l.details.join(', ')}</span>}
+            {l.details?.length > 0 && <span className="block pr-6 text-[13px] text-muted">{l.details.join(', ')}</span>}
           </li>
         ))}
-        {o.customer.note && <li className="border-t border-line pt-1.5 text-[13px]">הערה: {o.customer.note}</li>}
+        {o.customer.note && <li className="border-t border-line pt-1.5 text-[15px] font-medium">הערה: {o.customer.note}</li>}
         {o.payment?.method === 'cash' && o.payment.changeFor && o.payment.changeFor !== 'בדיוק' && (
-          <li className="text-[13px]">עודף מ-{o.payment.changeFor}</li>
+          <li className="text-[15px] font-medium">עודף מ-{o.payment.changeFor}</li>
         )}
       </ul>
 
@@ -247,26 +252,26 @@ function OrderCard({ order: o }) {
             <RejectForm onCancel={() => setRejecting(false)} onSubmit={(r) => (reject(r), setRejecting(false))} />
           ) : (
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setRejecting(true)} className="btn-danger">
+              <button type="button" onClick={() => setRejecting(true)} className="btn-danger py-4 text-[16px]">
                 דחה תשלום
               </button>
-              <button type="button" onClick={approve} className="btn-primary">
-                <Check size={17} /> אשר תשלום
+              <button type="button" onClick={approve} className="btn-primary py-4 text-[16px]">
+                <Check size={18} /> אשר תשלום
               </button>
             </div>
           ))}
         {o.status === 'preparing' && (
-          <button type="button" onClick={() => update({ status: 'ready' }, `#${o.number} מוכן. הלקוח קיבל התראה`)} className="btn-primary w-full">
+          <button type="button" onClick={() => update({ status: 'ready' }, `#${o.number} מוכן. הלקוח קיבל התראה`)} className="btn-primary w-full py-4 text-[17px]">
             ההזמנה מוכנה
           </button>
         )}
         {o.status === 'ready' && (
-          <button type="button" onClick={() => update({ status: 'on_the_way' }, `#${o.number} בדרך. הלקוח קיבל התראה`)} className="btn-primary w-full">
+          <button type="button" onClick={() => update({ status: 'on_the_way' }, `#${o.number} בדרך. הלקוח קיבל התראה`)} className="btn-primary w-full py-4 text-[17px]">
             יצאנו לחדר {o.customer.room}
           </button>
         )}
         {o.status === 'on_the_way' && (
-          <button type="button" onClick={() => update({ status: 'delivered', paid: true }, `#${o.number} נמסר`)} className="btn-primary w-full">
+          <button type="button" onClick={() => update({ status: 'delivered', paid: true }, `#${o.number} נמסר`)} className="btn-primary w-full py-4 text-[17px]">
             סמן כנמסר{o.payment?.method === 'cash' ? ' (המזומן התקבל)' : ''}
           </button>
         )}
@@ -378,41 +383,114 @@ function Transfers({ orders }) {
   )
 }
 
-const FILTERS = {
-  awaiting: (o) => o.status === 'awaiting_payment',
-  active: (o) => ['preparing', 'ready', 'on_the_way'].includes(o.status),
+const ACTIVE = ['awaiting_payment', 'preparing', 'ready', 'on_the_way']
+const HISTORY = {
   delivered: (o) => o.status === 'delivered',
   rejected: (o) => o.status === 'rejected' || o.status === 'cancelled',
 }
 
+/** פתיחה וסגירה של החנות — בראש העמוד הראשון */
+function StoreSwitch() {
+  const { settings } = useData()
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const open = settings.storeOpen
+  const flip = async () => {
+    setBusy(true)
+    try {
+      await storage.updateSettings({ storeOpen: !open })
+      toast(open ? 'החנות נסגרה. אפשר להסתכל, אי אפשר להזמין' : 'החנות נפתחה')
+    } catch {
+      toast('לא הצלחנו לעדכן. בדקו חיבור')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section className={`flex items-center gap-3 rounded-2xl p-4 ${open ? 'bg-[#E7F6EC]' : 'bg-[#FDECEA]'}`}>
+      <span className={`h-3.5 w-3.5 shrink-0 rounded-full ${open ? 'bg-[#1F9D55]' : 'bg-danger'}`} aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[20px] font-extrabold leading-tight">{open ? 'החנות פתוחה' : 'החנות סגורה'}</p>
+        <p className="text-[13px] text-muted">{open ? 'מקבלים הזמנות עכשיו' : 'רואים את המוצרים, אי אפשר להזמין'}</p>
+      </div>
+      <button
+        type="button"
+        onClick={flip}
+        disabled={busy}
+        aria-pressed={open}
+        className={`btn shrink-0 px-5 py-3.5 text-[16px] ${open ? 'border border-danger/30 bg-white text-danger' : 'bg-[#1F9D55] text-white'}`}
+      >
+        {busy ? '...' : open ? 'סגירת החנות' : 'פתיחת החנות'}
+      </button>
+    </section>
+  )
+}
+
+/** הודעה גדולה כשנכנסת הזמנה חדשה בזמן שהעמוד פתוח */
+function NewOrderBanner({ order, onClose }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 9000)
+    return () => clearTimeout(t)
+  }, [order.id, onClose])
+  return (
+    <motion.button
+      type="button"
+      initial={{ y: -40, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: -40, opacity: 0 }}
+      onClick={() => {
+        document.getElementById(`order-${order.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        onClose()
+      }}
+      className="fixed inset-x-3 top-3 z-[70] mx-auto flex max-w-3xl items-center gap-3 rounded-2xl bg-ink px-4 py-4 text-right text-white shadow-[0_10px_30px_rgba(0,0,0,.3)]"
+    >
+      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-ink">
+        <BellRing size={24} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[22px] font-extrabold leading-tight">הזמנה חדשה #{order.number}</span>
+        <span className="block truncate text-[15px] text-white/80">
+          {order.customer.name}, חדר {order.customer.room} | {ils(order.total)}
+        </span>
+      </span>
+    </motion.button>
+  )
+}
+
 export function OrdersTab() {
   const orders = useAllOrders()
-  const [filter, setFilter] = useState('awaiting')
+  const [history, setHistory] = useState('delivered')
   const [sound, setSound] = useLocal('ybc2:adminSound', true)
+  const [incoming, setIncoming] = useState(null)
   const known = useRef(null)
 
   useEffect(() => {
     if (!orders) return
     if (known.current) {
       const fresh = orders.filter((o) => !known.current.has(o.id))
-      if (fresh.length && sound) chime()
+      if (fresh.length) {
+        if (sound) chime()
+        vibrate([200, 100, 200])
+        setIncoming(fresh[0])
+      }
     }
     known.current = new Set(orders.map((o) => o.id))
   }, [orders, sound])
 
-  const counts = useMemo(
-    () => Object.fromEntries(Object.entries(FILTERS).map(([k, f]) => [k, (orders || []).filter(f).length])),
-    [orders],
-  )
-
-  if (!orders) return <p className="py-10 text-center text-muted">טוענים הזמנות...</p>
-
-  const list = filter === 'transfers' ? [] : orders.filter(FILTERS[filter])
+  const active = useMemo(() => (orders || []).filter((o) => ACTIVE.includes(o.status)).sort((a, b) => b.createdAt - a.createdAt), [orders])
+  const waiting = active.filter((o) => o.status === 'awaiting_payment').length
+  const closeBanner = useMemo(() => () => setIncoming(null), [])
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">הזמנות</h1>
+      <StoreSwitch />
+      <AdminPushCard />
+
+      <div className="flex items-end justify-between gap-3 pt-1">
+        <div>
+          <h1 className="text-[28px] font-extrabold leading-none">הזמנות {active.length > 0 && <span className="tabular-nums">({active.length})</span>}</h1>
+          {waiting > 0 && <p className="mt-1 text-[14px] font-semibold text-[#9A5B00]">{waiting} מחכות לאישור תשלום</p>}
+        </div>
         <button
           type="button"
           onClick={() => {
@@ -425,27 +503,42 @@ export function OrdersTab() {
           {sound ? 'צליל פעיל' : 'בלי צליל'}
         </button>
       </div>
-      <AdminPushCard />
-      <Segmented
-        value={filter}
-        onChange={setFilter}
-        options={[
-          { value: 'awaiting', label: 'ממתינות לאישור', count: counts.awaiting },
-          { value: 'active', label: 'בטיפול', count: counts.active },
-          { value: 'delivered', label: 'נמסרו' },
-          { value: 'rejected', label: 'נדחו' },
-          { value: 'transfers', label: 'העברות' },
-        ]}
-      />
-      {filter === 'transfers' ? (
-        <Transfers orders={orders} />
-      ) : list.length ? (
-        list.map((o) => <OrderCard key={o.id} order={o} />)
+
+      {!orders ? (
+        <p className="py-10 text-center text-muted">טוענים הזמנות...</p>
+      ) : active.length ? (
+        active.map((o) => <OrderCard key={o.id} order={o} />)
       ) : (
-        <p className="py-10 text-center text-sm text-muted">
-          {filter === 'awaiting' ? 'אין תשלומים שמחכים לאישור.' : filter === 'active' ? 'אין הזמנות בטיפול כרגע.' : 'אין כאן הזמנות.'}
-        </p>
+        <div className="card px-4 py-10 text-center">
+          <p className="text-lg font-bold">אין הזמנות פתוחות</p>
+          <p className="mt-1 text-sm text-muted">הזמנה חדשה תופיע כאן בגדול, עם צליל והתראה.</p>
+        </div>
       )}
+
+      {orders && (
+        <div className="space-y-3 pt-4">
+          <h2 className="text-lg font-bold">היסטוריה</h2>
+          <Segmented
+            value={history}
+            onChange={setHistory}
+            options={[
+              { value: 'delivered', label: 'נמסרו' },
+              { value: 'rejected', label: 'נדחו ובוטלו' },
+              { value: 'transfers', label: 'העברות' },
+            ]}
+          />
+          {history === 'transfers' ? (
+            <Transfers orders={orders} />
+          ) : (
+            (() => {
+              const list = orders.filter(HISTORY[history])
+              return list.length ? list.map((o) => <OrderCard key={o.id} order={o} />) : <p className="py-6 text-center text-sm text-muted">אין כאן הזמנות.</p>
+            })()
+          )}
+        </div>
+      )}
+
+      <AnimatePresence>{incoming && <NewOrderBanner key={incoming.id} order={incoming} onClose={closeBanner} />}</AnimatePresence>
     </div>
   )
 }

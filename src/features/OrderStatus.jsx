@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bell, BellRing, Check, ChevronLeft, CircleX, MessageCircle, Phone, ShoppingBag } from 'lucide-react'
-import { Sheet } from '../components/Overlays.jsx'
+import { Bell, BellRing, Check, ChevronLeft, CircleX, Footprints, MessageCircle, PackageCheck, PartyPopper, Phone, ShoppingBag } from 'lucide-react'
+import { Sheet, useScrollLock } from '../components/Overlays.jsx'
 import { useData } from '../state/DataContext.jsx'
 import { useUI } from '../state/UIContext.jsx'
 import { useCart } from '../state/CartContext.jsx'
 import { useLocal, LS_KEYS } from '../state/useLocal.js'
 import { storage } from '../services/storageService.js'
 import { ACTIVE_STATUSES, ORDER_STATUS, PAYMENT, statusLabel, waLink } from '../lib/shop.js'
-import { ils, vibrate } from '../lib/utils.js'
+import { ils, readLS, vibrate, writeLS } from '../lib/utils.js'
 import { localNotify, pushSupport, subscribePush } from '../lib/push.js'
+import { celebrate } from '../lib/celebrate.js'
 
 export function useOrder(id) {
   const [order, setOrder] = useState(undefined)
@@ -212,57 +214,159 @@ export function OrderStatus({ orderId, onClose }) {
   )
 }
 
-/** הזמנה פעילה של הטלפון הזה — מוצגת כפס קטן מעל סרגל ההזמנה */
+/** מה מציגים במסך הגדול כשההזמנה מתקדמת */
+const TAKEOVER = {
+  preparing: (o) => ({
+    Icon: Check,
+    title: o.payment?.method === 'cash' ? 'ההזמנה התקבלה!' : 'התשלום אושר!',
+    sub: 'מתחילים להכין לך את ההזמנה.',
+  }),
+  ready: () => ({ Icon: PackageCheck, title: 'ההזמנה מוכנה!', sub: 'עוד רגע יוצאים אליך.' }),
+  on_the_way: (o) => ({ Icon: Footprints, title: `בדרך לחדר ${o.customer?.room || ''}!`, sub: 'כדאי להיות בחדר, אנחנו כמעט שם.' }),
+  delivered: () => ({ Icon: PartyPopper, title: 'נמסר. בתיאבון!', sub: 'תודה שהזמנת מ-Y&B.' }),
+  rejected: (o) => ({ Icon: CircleX, title: 'התשלום לא אושר', sub: o.rejectReason ? `הסיבה: ${o.rejectReason}` : 'כתבו לנו ונסדר את זה.', danger: true }),
+  cancelled: () => ({ Icon: CircleX, title: 'ההזמנה בוטלה', sub: 'אם זו טעות, כתבו לנו.', danger: true }),
+}
+
+const SEEN_KEY = 'ybc2:seenStatus'
+
+/** פס התקדמות: שולם, מוכן, בדרך, נמסר */
+function ProgressBar({ order, light = false }) {
+  const step = ORDER_STATUS[order.status]?.step ?? 0
+  return (
+    <div className="flex gap-1.5" aria-hidden="true">
+      {[1, 2, 3, 4].map((n) => (
+        <span key={n} className={`h-1.5 flex-1 rounded-full ${step >= n ? (light ? 'bg-white' : 'bg-ink') : light ? 'bg-white/20' : 'bg-line'}`} />
+      ))}
+    </div>
+  )
+}
+
+/** מסך מלא כשההזמנה מתקדמת — כדי שהלקוח יראה את זה בגדול */
+function OrderTakeover({ order, onClose, onDetails }) {
+  useScrollLock()
+  const t = TAKEOVER[order.status](order)
+  const { Icon } = t
+  return createPortal(
+    <motion.div
+      className={`fixed inset-0 z-[95] flex flex-col items-center justify-center px-6 text-center text-white ${t.danger ? 'bg-[#B42318]' : 'bg-ink'}`}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={t.title}
+    >
+      <motion.div
+        initial={{ scale: 0.6, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+        className="grid h-28 w-28 place-items-center rounded-full bg-white text-ink"
+      >
+        <Icon size={56} strokeWidth={2.2} className={t.danger ? 'text-[#B42318]' : ''} />
+      </motion.div>
+      <p className="mt-6 text-[15px] text-white/70" dir="ltr">
+        #{order.number}
+      </p>
+      <h2 className="mt-1 text-[40px] font-extrabold leading-[1.05] tracking-tight">{t.title}</h2>
+      <p className="mt-3 max-w-xs text-[17px] leading-relaxed text-white/85">{t.sub}</p>
+      {!t.danger && (
+        <div className="mt-8 w-full max-w-xs">
+          <ProgressBar order={order} light />
+        </div>
+      )}
+      <div className="safe-bottom absolute inset-x-0 bottom-0 mx-auto grid w-full max-w-sm gap-2 px-6 pb-6">
+        <button type="button" onClick={onClose} className="btn bg-white py-4 text-[17px] text-ink">
+          אחלה
+        </button>
+        <button type="button" onClick={onDetails} className="btn py-3 text-[15px] text-white/80">
+          לפרטי ההזמנה
+        </button>
+      </div>
+    </motion.div>,
+    document.body,
+  )
+}
+
+/** הזמנה פעילה של הטלפון הזה — כרטיס מעל סרגל ההזמנה, ומסך מלא כשהיא מתקדמת */
 export function ActiveOrderPill() {
   const [mine] = useLocal(LS_KEYS.myOrders, [])
   const latest = (mine || []).find((o) => Date.now() - o.createdAt < 1000 * 60 * 60 * 24)
   const order = useOrder(latest?.id)
   const ui = useUI()
+  const [takeover, setTakeover] = useState(null)
   const show = order && (ACTIVE_STATUSES.includes(order.status) || order.status === 'rejected')
-  const prev = useRef(null)
+
   useEffect(() => {
     if (!order) return
-    const key = `${order.id}:${order.status}`
-    if (prev.current && prev.current !== key && prev.current.startsWith(order.id)) {
-      const text = statusLabel(order)
-      ui.toast(`הזמנה #${order.number}: ${text}`)
-      vibrate([80, 60, 80])
-      if (document.hidden) localNotify(`הזמנה #${order.number}`, text)
+    const seen = readLS(SEEN_KEY, {})
+    const last = seen[order.id]
+    if (last === order.status) return
+    if (last && TAKEOVER[order.status]) {
+      setTakeover(order)
+      vibrate([120, 80, 120])
+      if (order.status === 'ready' || order.status === 'delivered') celebrate()
+      if (document.hidden) localNotify(`הזמנה #${order.number}`, statusLabel(order))
     }
-    prev.current = key
-  }, [order, ui])
+    // שומרים רק את 10 ההזמנות האחרונות
+    const keep = Object.fromEntries(Object.entries(seen).slice(-10))
+    writeLS(SEEN_KEY, { ...keep, [order.id]: order.status })
+  }, [order])
 
   return (
-    <AnimatePresence>
-      {show && (
-        <motion.button
-          key={order.id}
-          type="button"
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 20, opacity: 0 }}
-          onClick={() => ui.openSheet('status', order.id)}
-          className="pointer-events-auto mx-auto mb-2 flex w-full max-w-lg items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-right shadow-[0_4px_16px_rgba(0,0,0,.06)]"
-        >
-          <span className="min-w-0">
-            <span className="block text-[13px] text-muted">הזמנה #{order.number}</span>
-            <span className={`block truncate text-[15px] font-semibold ${order.status === 'rejected' ? 'text-danger' : ''}`}>{statusLabel(order)}</span>
-          </span>
-          <ChevronLeft size={18} className="shrink-0 text-muted" />
-        </motion.button>
-      )}
-    </AnimatePresence>
+    <>
+      <AnimatePresence>
+        {show && (
+          <motion.button
+            key={order.id}
+            type="button"
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 20, opacity: 0 }}
+            onClick={() => ui.openSheet('status', order.id)}
+            className="pointer-events-auto mx-auto mb-2 block w-full max-w-lg rounded-2xl bg-white px-4 py-3.5 text-right shadow-[0_6px_20px_rgba(0,0,0,.18)]"
+          >
+            <span className="flex items-center justify-between gap-3">
+              <span className="min-w-0">
+                <span className="block text-[13px] text-muted">ההזמנה שלך #{order.number}</span>
+                <span className={`block truncate text-[18px] font-extrabold ${order.status === 'rejected' ? 'text-danger' : ''}`}>{statusLabel(order)}</span>
+              </span>
+              <ChevronLeft size={20} className="shrink-0 text-muted" />
+            </span>
+            {order.status !== 'rejected' && (
+              <span className="mt-2.5 block">
+                <ProgressBar order={order} />
+              </span>
+            )}
+          </motion.button>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {takeover && (
+          <OrderTakeover
+            key={`${takeover.id}-${takeover.status}`}
+            order={takeover}
+            onClose={() => setTakeover(null)}
+            onDetails={() => {
+              setTakeover(null)
+              ui.openSheet('status', takeover.id)
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </>
   )
 }
 
 export function CartBar() {
   const cart = useCart()
   const ui = useUI()
+  const { settings } = useData()
   return (
     <div className="safe-bottom pointer-events-none fixed inset-x-0 bottom-0 z-50 px-3">
       <ActiveOrderPill />
       <AnimatePresence>
-        {cart.count > 0 && (
+        {cart.count > 0 && settings.storeOpen && (
           <motion.button
             type="button"
             initial={{ y: 80 }}

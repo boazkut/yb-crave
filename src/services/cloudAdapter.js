@@ -68,6 +68,7 @@ export async function probeCloud() {
 export function createCloudAdapter(health) {
   const subs = { catalog: new Set(), admin: new Set(), adminsChanged: new Set(), refresh: new Set() }
   let catalog = null
+  let lastSig = ''
   let adminState = { status: 'signedOut' }
 
   const emitCatalog = () => subs.catalog.forEach((cb) => cb(catalog))
@@ -80,6 +81,10 @@ export function createCloudAdapter(health) {
   async function loadCatalog() {
     // מנהל מקבל נתונים טריים; גולשים מקבלים עותק מהיר מה-CDN
     const data = isAdminSession() ? await api('admin/catalog', { admin: true }) : await api('catalog')
+    // מעדכנים את המסך רק כשמשהו באמת השתנה — אחרת כל 97 המוצרים היו מצוירים מחדש באמצע גלילה
+    const sig = JSON.stringify(data)
+    if (sig === lastSig && catalog) return
+    lastSig = sig
     catalog = { products: data.products, settings: withSettingsDefaults(data.settings) }
     emitCatalog()
   }
@@ -87,7 +92,7 @@ export function createCloudAdapter(health) {
 
   let catalogPoll = null
   const ensureCatalogPoll = () => {
-    if (!catalogPoll) catalogPoll = poll(loadCatalog, 60_000)
+    if (!catalogPoll) catalogPoll = poll(loadCatalog, 25_000)
   }
 
   return {
@@ -209,6 +214,11 @@ export function createCloudAdapter(health) {
     },
     async deleteProduct(id) {
       await api(`admin/products/${encodeURIComponent(id)}`, { method: 'DELETE', admin: true })
+      await refreshAfterWrite()
+    },
+    /** action: 'delete' או 'update' עם patch כמו { price } */
+    async bulkProducts(ids, action, patch) {
+      await api('admin/products-bulk', { method: 'POST', admin: true, body: { ids, action, patch } })
       await refreshAfterWrite()
     },
     async getProductImage() {

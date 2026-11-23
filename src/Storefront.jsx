@@ -5,7 +5,7 @@ import { useData } from './state/DataContext.jsx'
 import { useUI } from './state/UIContext.jsx'
 import { Logo, StoreStatus } from './components/TopBar.jsx'
 import { BackgroundVideo } from './components/BackgroundVideo.jsx'
-import { BagBuilderCard, CategoryCard, CategoryHeader, ProductGrid, lookOf } from './components/Catalog.jsx'
+import { BagBuilderCard, CategoryCard, CategoryHeader, ClosedNotice, ProductGrid, lookOf } from './components/Catalog.jsx'
 import { Toasts } from './components/Overlays.jsx'
 import { CheckoutSheet } from './features/Checkout.jsx'
 import { BagBuilder, ComboBuilder } from './features/Builders.jsx'
@@ -13,9 +13,23 @@ import { CartBar, OrderStatus, SupportPhones } from './features/OrderStatus.jsx'
 import { navigate } from './lib/router.js'
 import { useSecretAdmin } from './lib/secretAdmin.js'
 
-const STOCK_ORDER = { in: 0, low: 1, out: 2 }
-const sortProducts = (list) =>
-  [...list].sort((a, b) => STOCK_ORDER[a.stock || 'in'] - STOCK_ORDER[b.stock || 'in'] || (a.sort ?? 0) - (b.sort ?? 0))
+// מוצר שאזל נשאר באותו מקום — רק מסומן
+const sortProducts = (list) => [...list].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
+
+/** רקע כהה לדף ולסרגל הסטטוס בזמן שהחנות פתוחה על המסך */
+function useStorefrontChrome() {
+  useEffect(() => {
+    const html = document.documentElement
+    html.classList.add('storefront')
+    const meta = document.querySelector('meta[name="theme-color"]')
+    const prev = meta?.getAttribute('content')
+    meta?.setAttribute('content', '#161616')
+    return () => {
+      html.classList.remove('storefront')
+      if (meta && prev) meta.setAttribute('content', prev)
+    }
+  }, [])
+}
 
 function Home({ byCategory }) {
   const { categories, products, settings } = useData()
@@ -73,6 +87,7 @@ function Home({ byCategory }) {
 
       {q ? (
         <main className="mx-auto max-w-5xl px-4 pt-5">
+          <ClosedNotice className="mb-3" />
           <p className="mb-3 text-sm font-medium text-white">
             {results.length ? `${results.length} תוצאות` : 'לא מצאנו מוצר כזה'}
           </p>
@@ -91,6 +106,7 @@ function Home({ byCategory }) {
             </p>
           </section>
           <main className="mx-auto max-w-5xl space-y-3 px-4">
+            <ClosedNotice />
             {categories.map((c, i) => (
               <CategoryCard key={c.id} category={c} index={i} products={byCategory[c.id] || []} />
             ))}
@@ -108,7 +124,7 @@ function Home({ byCategory }) {
 }
 
 function CategoryView({ category, items }) {
-  const { categories } = useData()
+  const { categories, settings } = useData()
   const ui = useUI()
   const [budget, setBudget] = useState(null)
   useEffect(() => setBudget(null), [category.id])
@@ -118,7 +134,8 @@ function CategoryView({ category, items }) {
     <>
       <CategoryHeader categories={categories} current={category} budget={budget} setBudget={setBudget} />
       <main className="mx-auto max-w-5xl px-3 pt-4">
-        {category.id === 'sour' && !budget && <BagBuilderCard onOpen={() => ui.openSheet('bag')} />}
+        <ClosedNotice className="mb-3" />
+        {category.id === 'sour' && !budget && settings.storeOpen && <BagBuilderCard onOpen={() => ui.openSheet('bag')} />}
         {shown.length ? (
           <ProductGrid products={shown} />
         ) : (
@@ -137,6 +154,7 @@ function CategoryView({ category, items }) {
 export function Storefront({ path }) {
   const { products, categories } = useData()
   const ui = useUI()
+  useStorefrontChrome()
   const catId = path.startsWith('/c/') ? decodeURIComponent(path.slice(3)) : null
   const index = categories.findIndex((c) => c.id === catId)
   const current = index >= 0 ? categories[index] : null

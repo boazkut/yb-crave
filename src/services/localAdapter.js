@@ -151,6 +151,15 @@ export function createLocalAdapter() {
       writeLS(K.images, imgs)
       setProducts(getProducts().filter((p) => p.id !== id))
     },
+    async bulkProducts(ids, action, patch) {
+      const set = new Set(ids)
+      if (action === 'delete') {
+        const imgs = readLS(K.images, {})
+        for (const id of ids) delete imgs[id]
+        writeLS(K.images, imgs)
+        setProducts(getProducts().filter((p) => !set.has(p.id)))
+      } else setProducts(getProducts().map((p) => (set.has(p.id) ? { ...p, ...patch } : p)))
+    },
     async getProductImage(id) {
       return readLS(K.images, {})[id] || null
     },

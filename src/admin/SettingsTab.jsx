@@ -5,7 +5,7 @@ import { storage } from '../services/storageService.js'
 import { PAYMENT } from '../lib/shop.js'
 import { dateKey, ils, uid } from '../lib/utils.js'
 import { useAllOrders } from './OrdersTab.jsx'
-import { Section, Segmented, Toggle, useToast } from './ui.jsx'
+import { Section, Segmented, useToast } from './ui.jsx'
 
 function Field({ label, value, onSave, hint, dir }) {
   const [v, setV] = useState(value || '')
@@ -204,15 +204,7 @@ export function SettingsTab() {
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">הגדרות</h1>
 
-      <Section>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="font-semibold">{settings.storeOpen ? 'החנות פתוחה' : 'החנות סגורה'}</p>
-            <p className="text-[13px] text-muted">כשהחנות סגורה אי אפשר לשלוח הזמנות</p>
-          </div>
-          <Toggle checked={settings.storeOpen} onChange={(v) => save({ storeOpen: v }, v ? 'החנות נפתחה' : 'החנות נסגרה')} label="החנות פתוחה" />
-        </div>
-      </Section>
+      <p className="text-[13px] text-muted">פתיחה וסגירה של החנות נמצאות בראש עמוד ההזמנות.</p>
 
       <Section title="תשלומים">
         <div className="space-y-3">

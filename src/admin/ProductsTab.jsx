@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowDown, ArrowUp, Camera, ChevronDown, ImagePlus, Plus, SkipForward, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Camera, Check, ChevronDown, ImagePlus, Plus, SkipForward, Tag, Trash2, X } from 'lucide-react'
 import { useData } from '../state/DataContext.jsx'
 import { storage } from '../services/storageService.js'
 import { ProductImage, hasRealImage } from '../components/ProductImage.jsx'
 import { STOCK } from '../lib/shop.js'
 import { compressProductImage } from '../lib/imageCompress.js'
-import { uid } from '../lib/utils.js'
+import { ils, uid, vibrate } from '../lib/utils.js'
 import { Section, Segmented, Toggle, useToast } from './ui.jsx'
 
 const STOCK_OPTIONS = ['in', 'low', 'out'].map((s) => ({ value: s, label: STOCK[s].label }))
@@ -155,9 +155,48 @@ function QuickPhotos({ products, onClose }) {
   )
 }
 
-function ProductRow({ p, categories }) {
+/** לחיצה ארוכה (בלי לגלול) */
+function useLongPress(onLong, ms = 450) {
+  const timer = useRef(0)
+  const start = useRef(null)
+  const fired = useRef(false)
+  const clear = () => {
+    clearTimeout(timer.current)
+    start.current = null
+  }
+  const handlers = {
+    onPointerDown: (e) => {
+      fired.current = false
+      if (e.target.closest?.('input, select, textarea')) return
+      start.current = { x: e.clientX, y: e.clientY }
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => {
+        fired.current = true
+        vibrate(30)
+        onLong()
+      }, ms)
+    },
+    onPointerMove: (e) => {
+      if (start.current && Math.hypot(e.clientX - start.current.x, e.clientY - start.current.y) > 10) clear()
+    },
+    onPointerUp: clear,
+    onPointerLeave: clear,
+    onPointerCancel: clear,
+    onContextMenu: (e) => e.preventDefault(),
+  }
+  // אחרי לחיצה ארוכה לא מפעילים גם את הלחיצה הרגילה
+  const swallow = () => {
+    if (!fired.current) return false
+    fired.current = false
+    return true
+  }
+  return { handlers, swallow }
+}
+
+function ProductRow({ p, categories, selecting, selected, onToggle }) {
   const toast = useToast()
   const [open, setOpen] = useState(false)
+  const lp = useLongPress(() => onToggle(p.id))
   const save = async (patch, msg = 'נשמר') => {
     try {
       await storage.saveProduct({ ...p, ...patch })
@@ -166,33 +205,55 @@ function ProductRow({ p, categories }) {
       toast('השמירה נכשלה')
     }
   }
+  const tap = () => {
+    if (lp.swallow()) return
+    if (selecting) onToggle(p.id)
+    else setOpen((o) => !o)
+  }
 
   return (
-    <li className="py-3">
-      <div className="flex items-center gap-3">
-        <button type="button" onClick={() => setOpen((o) => !o)} className="shrink-0" aria-label={`עריכת ${p.name}`}>
+    <li className={`-mx-4 select-none px-4 py-3 [-webkit-touch-callout:none] ${selected ? 'bg-[#F0F0EE]' : ''}`}>
+      <div className="flex items-center gap-3" {...lp.handlers}>
+        {selecting && (
+          <button
+            type="button"
+            onClick={tap}
+            className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 ${selected ? 'border-ink bg-ink text-white' : 'border-[#C9C9C9] bg-white'}`}
+            aria-label={`${selected ? 'ביטול בחירה' : 'בחירה'}: ${p.name}`}
+            aria-pressed={selected}
+          >
+            {selected && <Check size={14} strokeWidth={3} />}
+          </button>
+        )}
+        <button type="button" onClick={tap} className="shrink-0" aria-label={selecting ? `בחירת ${p.name}` : `עריכת ${p.name}`} draggable={false}>
           <ProductImage product={p} dim={p.stock === 'out'} className="h-14 w-14 rounded-xl bg-tile" artClass="h-12 w-10" />
         </button>
-        <button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-1 items-center gap-1 text-right">
+        <button type="button" onClick={tap} className="flex min-w-0 flex-1 items-center gap-1 text-right">
           <span className="truncate text-[15px] font-medium">{p.name}</span>
-          <ChevronDown size={15} className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+          {!selecting && <ChevronDown size={15} className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />}
         </button>
-        <div className="relative w-[76px] shrink-0">
-          <CommitInput
-            type="number"
-            inputMode="decimal"
-            step="0.5"
-            value={p.price}
-            onCommit={(v) => {
-              const n = Number(v)
-              if (!Number.isNaN(n) && n >= 0) save({ price: n }, `מחיר עודכן: ${n} ₪`)
-            }}
-            aria-label={`מחיר ${p.name}`}
-            className="field px-2 py-2.5 pl-5 text-center text-sm font-semibold"
-          />
-          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-muted">₪</span>
-        </div>
+        {selecting ? (
+          <span className="shrink-0 text-[15px] font-semibold tabular-nums">{ils(p.price)}</span>
+        ) : (
+          <div className="relative w-[76px] shrink-0">
+            <CommitInput
+              type="number"
+              inputMode="decimal"
+              step="0.5"
+              value={p.price}
+              onCommit={(v) => {
+                const n = Number(v)
+                if (!Number.isNaN(n) && n >= 0) save({ price: n }, `מחיר עודכן: ${n} ₪`)
+              }}
+              aria-label={`מחיר ${p.name}`}
+              className="field px-2 py-2.5 pl-5 text-center text-sm font-semibold"
+            />
+            <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-muted">₪</span>
+          </div>
+        )}
       </div>
+      {selecting ? null : (
+      <>
       <div className="mt-2">
         <Segmented size="sm" value={p.stock || 'in'} onChange={(v) => save({ stock: v }, `${p.name}: ${STOCK[v].label}`)} options={STOCK_OPTIONS} />
       </div>
@@ -253,7 +314,100 @@ function ProductRow({ p, categories }) {
           </motion.div>
         )}
       </AnimatePresence>
+      </>
+      )}
     </li>
+  )
+}
+
+/** סרגל פעולות כשבוחרים כמה מוצרים בלחיצה ארוכה */
+function BulkBar({ ids, onAll, onClear }) {
+  const toast = useToast()
+  const { byId } = useData()
+  const [pricing, setPricing] = useState(false)
+  const [price, setPrice] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const run = async (action, patch, msg) => {
+    setBusy(true)
+    try {
+      if (storage.bulkProducts) await storage.bulkProducts(ids, action, patch)
+      else await Promise.all(ids.map((id) => (action === 'delete' ? storage.deleteProduct(id) : storage.saveProduct({ ...byId[id], ...patch }))))
+      toast(msg)
+      onClear()
+    } catch (e) {
+      toast(e?.message || 'הפעולה נכשלה')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const n = Number(price)
+  const priceOk = price !== '' && !Number.isNaN(n) && n >= 0
+
+  return (
+    <motion.div
+      initial={{ y: 40, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: 40, opacity: 0 }}
+      className="fixed inset-x-0 z-40 px-3"
+      style={{ bottom: 'calc(70px + env(safe-area-inset-bottom))' }}
+    >
+      <div className="mx-auto max-w-3xl rounded-2xl bg-ink p-3 text-white shadow-[0_10px_30px_rgba(0,0,0,.3)]">
+        <div className="flex items-center gap-2">
+          <p className="flex-1 text-[16px] font-bold">נבחרו {ids.length}</p>
+          <button type="button" onClick={onAll} className="rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-white/80">
+            בחירת הכל
+          </button>
+          <button type="button" onClick={onClear} className="grid h-9 w-9 place-items-center rounded-full bg-white/10" aria-label="ביטול הבחירה">
+            <X size={18} />
+          </button>
+        </div>
+        {pricing ? (
+          <form
+            className="mt-2.5 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (priceOk) run('update', { price: n }, `המחיר של ${ids.length} מוצרים עודכן ל-${n} ₪`)
+            }}
+          >
+            <div className="relative flex-1">
+              <input
+                autoFocus
+                type="number"
+                inputMode="decimal"
+                step="0.5"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="מחיר חדש"
+                className="w-full rounded-xl bg-white px-3 py-3 pl-7 text-center text-[17px] font-bold text-ink focus:outline-none"
+                aria-label="מחיר חדש לכל המוצרים שנבחרו"
+              />
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">₪</span>
+            </div>
+            <button type="submit" disabled={!priceOk || busy} className="btn bg-white px-4 text-ink">
+              {busy ? '...' : 'עדכון'}
+            </button>
+            <button type="button" onClick={() => setPricing(false)} className="btn px-3 text-white/80">
+              חזרה
+            </button>
+          </form>
+        ) : (
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
+            <button type="button" disabled={busy} onClick={() => setPricing(true)} className="btn bg-white py-3 text-ink">
+              <Tag size={17} /> מחיר לכולם
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => window.confirm(`למחוק ${ids.length} מוצרים? אי אפשר לבטל.`) && run('delete', null, `${ids.length} מוצרים נמחקו`)}
+              className="btn bg-danger py-3 text-white"
+            >
+              <Trash2 size={17} /> {busy ? 'מוחקים...' : 'מחיקה'}
+            </button>
+          </div>
+        )}
+      </div>
+    </motion.div>
   )
 }
 
@@ -403,6 +557,9 @@ export function ProductsTab() {
   const [q, setQ] = useState('')
   const [adding, setAdding] = useState(false)
   const [quick, setQuick] = useState(false)
+  const [picked, setPicked] = useState([])
+  const selecting = picked.length > 0
+  const toggle = (id) => setPicked((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]))
   const missing = products.filter((p) => !hasRealImage(p)).length
 
   const list = useMemo(
@@ -443,16 +600,28 @@ export function ProductsTab() {
           </button>
         ))}
       </div>
-      {outCount > 0 && <p className="text-[13px] text-muted">{outCount} מוצרים מסומנים כרגע כ"אזל".</p>}
-      <Section>
+      <p className="text-[13px] text-muted">
+        לחיצה ארוכה על מוצר בוחרת כמה מוצרים יחד, למחיקה או למחיר אחיד.
+        {outCount > 0 && ` ${outCount} מוצרים מסומנים כרגע כ"אזל".`}
+      </p>
+      <Section className="overflow-hidden">
         <ul className="-my-3 divide-y divide-line">
           {list.map((p) => (
-            <ProductRow key={p.id} p={p} categories={categories} />
+            <ProductRow key={p.id} p={p} categories={categories} selecting={selecting} selected={picked.includes(p.id)} onToggle={toggle} />
           ))}
         </ul>
         {!list.length && <p className="text-sm text-muted">אין מוצרים כאן.</p>}
       </Section>
-      <CategoriesManager />
+      {selecting ? <div className="h-36" aria-hidden="true" /> : <CategoriesManager />}
+      <AnimatePresence>
+        {selecting && (
+          <BulkBar
+            ids={picked}
+            onAll={() => setPicked(list.map((p) => p.id))}
+            onClear={() => setPicked([])}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

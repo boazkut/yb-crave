@@ -1,10 +1,11 @@
 import { memo, useEffect, useRef } from 'react'
-import { ChevronLeft, ChevronRight, PencilLine, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, PencilLine, Plus, X } from 'lucide-react'
 import { ProductImage } from './ProductImage.jsx'
 import { ProductArt } from './ProductArt.jsx'
 import { Stepper } from './Overlays.jsx'
 import { useCart } from '../state/CartContext.jsx'
 import { useUI } from '../state/UIContext.jsx'
+import { useData } from '../state/DataContext.jsx'
 import { CATEGORY_LOOK, TONES } from '../data/catalog.js'
 import { STOCK } from '../lib/shop.js'
 import { ils } from '../lib/utils.js'
@@ -31,7 +32,7 @@ export function CategoryCard({ category, index, products }) {
     <button
       type="button"
       onClick={() => navigate(`/c/${category.id}`)}
-      className="flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right shadow-[0_6px_24px_-12px_rgba(0,0,0,.45)] transition-transform active:scale-[0.985]"
+      className="flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right transition-transform active:scale-[0.985]"
     >
       <div className="h-[86px] w-[112px] shrink-0 overflow-hidden rounded-2xl bg-tile">
         {look.clip ? (
@@ -117,7 +118,7 @@ export function CategoryHeader({ categories, current, budget, setBudget }) {
   )
 }
 
-function ProductCardBase({ product: p }) {
+function ProductCardBase({ product: p, canBuy = true }) {
   const cart = useCart()
   const ui = useUI()
   const out = p.stock === 'out'
@@ -125,15 +126,20 @@ function ProductCardBase({ product: p }) {
   const add = () => (p.comboSlots ? ui.openSheet('combo', p.id) : cart.addProduct(p))
 
   return (
-    <article className="flex flex-col rounded-[20px] bg-white p-2 shadow-[0_6px_24px_-14px_rgba(0,0,0,.5)]">
+    <article className={`flex flex-col rounded-[20px] p-2 ${out ? 'bg-[#EFEFEF]' : 'bg-white'}`} aria-label={out ? `${p.name}, אזל מהמלאי` : undefined}>
       <div className="relative aspect-square overflow-hidden rounded-2xl bg-tile">
         <ProductImage product={p} dim={out} className="absolute inset-0" />
-        {p.stock !== 'in' && (
-          <span className={`absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold ${out ? 'text-danger' : 'text-ink'}`}>
-            {STOCK[p.stock]?.label}
-          </span>
+        {out && (
+          <div className="absolute inset-0 grid place-items-center bg-white/35">
+            <span className="grid h-14 w-14 place-items-center rounded-full bg-danger text-white shadow-[0_4px_14px_rgba(217,45,32,.35)]">
+              <X size={30} strokeWidth={3} />
+            </span>
+          </div>
         )}
-        {!out && (
+        {p.stock === 'low' && (
+          <span className="absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink">{STOCK.low.label}</span>
+        )}
+        {!out && canBuy && (
           <div className="absolute bottom-2 left-2">
             {qty > 0 && !p.comboSlots ? (
               <Stepper size="sm" dark value={qty} onDec={() => cart.decProduct(p.id)} onInc={add} />
@@ -146,9 +152,13 @@ function ProductCardBase({ product: p }) {
         )}
       </div>
       <div className="flex flex-1 flex-col px-1 pb-1 pt-2">
-        <h3 className="line-clamp-2 text-[15px] font-medium leading-snug">{p.name}</h3>
-        {p.note && <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-muted">{p.note}</p>}
-        <p className="mt-auto pt-1.5 text-[15px] font-bold">{ils(p.price)}</p>
+        <h3 className={`line-clamp-2 text-[15px] font-medium leading-snug ${out ? 'text-muted' : ''}`}>{p.name}</h3>
+        {out ? (
+          <p className="mt-0.5 text-[13px] font-bold text-danger">אזל מהמלאי</p>
+        ) : (
+          p.note && <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-muted">{p.note}</p>
+        )}
+        <p className={`mt-auto pt-1.5 text-[15px] font-bold ${out ? 'text-[#A3A3A3] line-through' : ''}`}>{ils(p.price)}</p>
       </div>
     </article>
   )
@@ -156,18 +166,36 @@ function ProductCardBase({ product: p }) {
 export const ProductCard = memo(ProductCardBase)
 
 export function ProductGrid({ products }) {
+  const { settings } = useData()
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {products.map((p) => (
-        <ProductCard key={p.id} product={p} />
+        <ProductCard key={p.id} product={p} canBuy={settings.storeOpen} />
       ))}
+    </div>
+  )
+}
+
+/** הודעה בולטת כשהחנות סגורה: אפשר להסתכל, אי אפשר לקנות */
+export function ClosedNotice({ className = '' }) {
+  const { settings } = useData()
+  if (settings.storeOpen) return null
+  return (
+    <div className={`flex items-center gap-3 rounded-[22px] bg-white p-4 ${className}`} role="status">
+      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-danger text-white">
+        <X size={22} strokeWidth={2.6} />
+      </span>
+      <div>
+        <p className="text-[17px] font-extrabold">החנות סגורה כרגע</p>
+        <p className="text-[14px] text-muted">אפשר להסתכל על המוצרים, אבל אי אפשר להזמין עד שנפתח.</p>
+      </div>
     </div>
   )
 }
 
 export function BagBuilderCard({ onOpen }) {
   return (
-    <button type="button" onClick={onOpen} className="mb-3 flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right shadow-[0_6px_24px_-14px_rgba(0,0,0,.5)]">
+    <button type="button" onClick={onOpen} className="mb-3 flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right">
       <div className="h-[72px] w-[92px] shrink-0 overflow-hidden rounded-2xl bg-tile">
         <img src="/media/cat-candy.jpg" alt="" className="h-full w-full object-cover" loading="lazy" />
       </div>

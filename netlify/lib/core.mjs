@@ -16,6 +16,7 @@
  */
 import crypto from 'node:crypto'
 import * as webpush from 'web-push'
+import { purgeCache } from '@netlify/functions'
 import { db } from './store.mjs'
 import { SEED_PRODUCTS, DEFAULT_CATEGORIES, REMOVED_CATEGORIES } from '../../src/data/catalog.js'
 import { DEFAULT_SETTINGS, withSettingsDefaults } from '../../src/services/defaults.js'
@@ -138,6 +139,15 @@ async function pushAdmins(payload) {
   await Promise.all(blobs.map((b) => pushTo(b.key, payload)))
 }
 const later = (ctx, p) => (ctx?.waitUntil ? ctx.waitUntil(p.catch(() => {})) : p.catch(() => {}))
+
+// אחרי שינוי במוצרים או בהגדרות מנקים את העותק של הקטלוג ב-CDN, כדי שכולם יראו מיד (למשל חנות סגורה)
+const purgeCatalog = async () => {
+  try {
+    await purgeCache({ tags: ['catalog'] })
+  } catch {
+    /* מקומית או בלי הרשאה: העותק פג לבד תוך 20 שניות */
+  }
+}
 
 const CUSTOMER_PUSH = {
   preparing: (o) => ({ title: 'התשלום אושר', body: `מכינים לך את הזמנה #${o.number}` }),
@@ -278,7 +288,8 @@ export async function handle(req, ctx) {
       const [products, settings] = await Promise.all([listProducts(), getSettings()])
       return json({ products, settings: publicSettings(settings) }, 200, {
         'cache-control': 'public, max-age=0, must-revalidate',
-        'netlify-cdn-cache-control': 'public, durable, s-maxage=20, stale-while-revalidate=300',
+        'netlify-cdn-cache-control': 'public, durable, s-maxage=20, stale-while-revalidate=60',
+        'netlify-cache-tag': 'catalog',
       })
     }
     if (a === 'img' && b && m === 'GET') {
@@ -349,11 +360,39 @@ export async function handle(req, ctx) {
         const cur = (await store.get(`products/${c}`, { type: 'json' })) || {}
         const next = { ...cur, ...p, id: c }
         await store.setJSON(`products/${c}`, next)
+        later(ctx, purgeCatalog())
         return json({ product: next })
       }
       if (b === 'products' && c && !d && m === 'DELETE') {
         await Promise.all([store.delete(`products/${c}`), store.delete(`pimg/${c}`)])
+        later(ctx, purgeCatalog())
         return json({ ok: true })
+      }
+      // פעולה על כמה מוצרים יחד: מחיקה או עדכון מחיר/מלאי
+      if (b === 'products-bulk' && m === 'POST') {
+        const { ids, action, patch } = (await req.json().catch(() => null)) || {}
+        if (!Array.isArray(ids) || !ids.length || ids.length > 300) return fail(400, 'לא נבחרו מוצרים')
+        const clean = ids.map(String).filter((x) => /^[\w-]{1,80}$/.test(x))
+        if (action === 'delete') {
+          await Promise.all(clean.flatMap((id) => [store.delete(`products/${id}`), store.delete(`pimg/${id}`)]))
+        } else if (action === 'update') {
+          const allowed = {}
+          if (patch && 'price' in patch) {
+            const n = Number(patch.price)
+            if (Number.isNaN(n) || n < 0 || n > 1000) return fail(400, 'מחיר לא תקין')
+            allowed.price = n
+          }
+          if (patch && ['in', 'low', 'out'].includes(patch.stock)) allowed.stock = patch.stock
+          if (!Object.keys(allowed).length) return fail(400, 'אין מה לעדכן')
+          await Promise.all(
+            clean.map(async (id) => {
+              const cur = await store.get(`products/${id}`, { type: 'json' })
+              if (cur) await store.setJSON(`products/${id}`, { ...cur, ...allowed })
+            }),
+          )
+        } else return fail(400, 'פעולה לא מוכרת')
+        later(ctx, purgeCatalog())
+        return json({ ok: true, count: clean.length })
       }
       if (b === 'products' && c && d === 'image' && m === 'PUT') {
         const { dataUrl } = await req.json()
@@ -365,16 +404,19 @@ export async function handle(req, ctx) {
         } else await store.delete(`pimg/${c}`)
         const next = { ...cur, imageV: dataUrl ? Date.now() : 0 }
         await store.setJSON(`products/${c}`, next)
+        later(ctx, purgeCatalog())
         return json({ product: next })
       }
       if (b === 'seed' && m === 'POST') {
         await Promise.all(SEED_PRODUCTS.map((p) => store.setJSON(`products/${p.id}`, p, { onlyIfNew: true })))
+        later(ctx, purgeCatalog())
         return json({ ok: true })
       }
       if (b === 'settings' && m === 'PATCH') {
         const patch = await req.json()
         const next = { ...(await getSettings()), ...patch }
         await store.setJSON('meta/settings', next)
+        later(ctx, purgeCatalog())
         return json({ settings: next })
       }
       if (b === 'admins' && !c && m === 'GET') return json({ admins: (await listAdmins()).map(publicAdmin) })

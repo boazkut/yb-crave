@@ -3,18 +3,31 @@ import { AnimatePresence, motion, useDragControls } from 'framer-motion'
 import { X } from 'lucide-react'
 import { useUI } from '../state/UIContext.jsx'
 
+/**
+ * נעילת גלילה עם מונה: כמה חלונות יכולים להיות פתוחים יחד (למשל מעבר מהקופה למסך ההזמנה),
+ * והגלילה חוזרת רק כשהאחרון נסגר. בלי זה הדף היה נשאר "תקוע" אחרי קנייה.
+ */
+let locks = 0
+export function useScrollLock(active = true) {
+  useEffect(() => {
+    if (!active) return undefined
+    locks += 1
+    document.documentElement.classList.add('scroll-locked')
+    return () => {
+      locks = Math.max(0, locks - 1)
+      if (!locks) document.documentElement.classList.remove('scroll-locked')
+    }
+  }, [active])
+}
+
 export function Sheet({ title, onClose, children, footer, wide = false }) {
   const drag = useDragControls()
+  useScrollLock()
 
   useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     const onKey = (e) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
-    return () => {
-      document.body.style.overflow = prev
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
   return (

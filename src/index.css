@@ -76,6 +76,16 @@
   }
 }
 
+html.scroll-locked,
+html.scroll-locked body {
+  overflow: hidden;
+}
+/* בחנות הרקע כהה, כדי שבגלילה מעבר לקצה או כשסרגל הכתובת זז לא יופיע לבן */
+html.storefront,
+html.storefront body {
+  background: #161616;
+}
+
 @keyframes bg-flash {
   from {
     opacity: 0.4;
