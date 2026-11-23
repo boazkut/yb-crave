@@ -7,6 +7,7 @@ import { Logo, StoreStatus } from './components/TopBar.jsx'
 import { BackgroundVideo } from './components/BackgroundVideo.jsx'
 import { BagBuilderCard, CategoryCard, CategoryHeader, ClosedNotice, ProductGrid, lookOf } from './components/Catalog.jsx'
 import { Toasts } from './components/Overlays.jsx'
+import { InstallCard } from './components/InstallCard.jsx'
 import { CheckoutSheet } from './features/Checkout.jsx'
 import { BagBuilder, ComboBuilder } from './features/Builders.jsx'
 import { CartBar, OrderStatus, SupportPhones } from './features/OrderStatus.jsx'
@@ -111,6 +112,9 @@ function Home({ byCategory }) {
               <CategoryCard key={c.id} category={c} index={i} products={byCategory[c.id] || []} />
             ))}
           </main>
+          <div className="mx-auto mt-3 max-w-5xl px-4">
+            <InstallCard />
+          </div>
           <footer className="mx-auto mt-8 max-w-5xl space-y-4 px-5">
             <SupportPhones light />
             <p className="text-[13px] text-white/70">

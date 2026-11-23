@@ -3,6 +3,12 @@ import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/heebo/index.css'
 import './index.css'
 import { App } from './App.jsx'
+import { initInstall } from './lib/install.js'
+import { registerSW } from './lib/push.js'
+
+// מוכנים להתקנה כאפליקציה ולהתראות מהרגע הראשון
+initInstall()
+registerSW()
 
 // כל כניסה מחדש מתחילה מדף הבית (המנהלים נשארים באזור שלהם)
 if (window.location.pathname.startsWith('/c/')) window.history.replaceState({}, '', '/')
