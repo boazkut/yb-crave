@@ -46,7 +46,7 @@ export async function localNotify(title, body) {
   try {
     if (!('Notification' in window) || Notification.permission !== 'granted') return
     const reg = await registerSW()
-    if (reg?.showNotification) reg.showNotification(title, { body, icon: '/icon-192.png', badge: '/badge-96.png', dir: 'rtl', lang: 'he' })
+    if (reg?.showNotification) reg.showNotification(title, { body, icon: '/brand/icon-192.png', badge: '/brand/badge-96.png', dir: 'rtl', lang: 'he' })
   } catch {
     /* לא קריטי */
   }

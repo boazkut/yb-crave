@@ -1,12 +1,9 @@
 import { useData } from '../state/DataContext.jsx'
+import { LogoMark } from './LogoMark.jsx'
 
+/** הסמל של האפליקציה: Y&B ומתחת CRAVE */
 export function Logo({ light = false, className = '' }) {
-  return (
-    <span className={`inline-flex items-baseline gap-1.5 leading-none ${className}`} dir="ltr">
-      <span className={`text-[26px] font-extrabold tracking-tight ${light ? 'text-white' : ''}`}>Y&amp;B</span>
-      <span className={`text-[13px] font-semibold tracking-[0.18em] ${light ? 'text-white/75' : 'text-muted'}`}>CRAVE</span>
-    </span>
-  )
+  return <LogoMark tone={light ? 'light' : 'dark'} className={`block h-[38px] w-[61px] shrink-0 ${className}`} />
 }
 
 export function StoreStatus({ pill = false }) {

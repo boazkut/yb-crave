@@ -3,6 +3,7 @@ import { ClipboardList, LoaderCircle, LogOut, Package, Settings, Store, Users } 
 import { storage } from '../services/storageService.js'
 import { useData } from '../state/DataContext.jsx'
 import { navigate } from '../lib/router.js'
+import { setThemeColor } from '../lib/splash.js'
 import { Logo } from '../components/TopBar.jsx'
 import { AdminToastProvider } from './ui.jsx'
 import { OrdersTab } from './OrdersTab.jsx'
@@ -245,8 +246,10 @@ export default function AdminApp() {
   useEffect(() => storage.onAdminChange(setAuth), [])
   useEffect(() => {
     document.title = 'ניהול | Y&B CRAVE'
+    setThemeColor('#FAF9F6')
     return () => {
       document.title = 'Y&B CRAVE'
+      setThemeColor('#141318')
     }
   }, [])
 

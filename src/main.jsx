@@ -4,6 +4,9 @@ import '@fontsource-variable/heebo/index.css'
 import './index.css'
 import { App } from './App.jsx'
 
+// כל כניסה מחדש מתחילה מדף הבית (המנהלים נשארים באזור שלהם)
+if (window.location.pathname.startsWith('/c/')) window.history.replaceState({}, '', '/')
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />
