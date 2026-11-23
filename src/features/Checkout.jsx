@@ -8,7 +8,7 @@ import { useUI } from '../state/UIContext.jsx'
 import { useData } from '../state/DataContext.jsx'
 import { useLocal, LS_KEYS } from '../state/useLocal.js'
 import { storage } from '../services/storageService.js'
-import { normalizeIsraeliPhone } from '../lib/shop.js'
+import { LIMITED, normalizeIsraeliPhone } from '../lib/shop.js'
 import { compressImage } from '../lib/imageCompress.js'
 import { copyText, dateKey, ils } from '../lib/utils.js'
 import { openPayApp } from '../lib/payApps.js'
@@ -137,7 +137,15 @@ function CartStep({ onNext, onClose }) {
                 const p = byId[l.productId]
                 if (!p) return <p className="mt-0.5 text-[12px] font-semibold text-danger">המוצר כבר לא בחנות. מוחקים אותו מההזמנה.</p>
                 if (p.stock === 'out') return <p className="mt-0.5 text-[12px] font-semibold text-danger">אזל בינתיים. מוחקים אותו מההזמנה.</p>
-                if (Number.isInteger(p.qty) && l.qty > p.qty) return <p className="mt-0.5 text-[12px] font-semibold text-danger">נשארו רק {p.qty}. מורידים כמות.</p>
+                if (Number.isInteger(p.qty) && l.qty > p.qty)
+                  return (
+                    <p className="mt-0.5 text-[12px] font-semibold text-danger">
+                      המלאי מוגבל.{' '}
+                      <button type="button" onClick={() => cart.setQty(l.key, p.qty)} className="underline underline-offset-2">
+                        עדכון כמות
+                      </button>
+                    </p>
+                  )
                 return null
               })()}
               <p className="mt-0.5 text-sm font-semibold">
@@ -150,7 +158,7 @@ function CartStep({ onNext, onClose }) {
               onDec={() => cart.setQty(l.key, l.qty - 1)}
               onInc={() => {
                 const left = Number.isInteger(byId[l.productId]?.qty) ? byId[l.productId].qty : null
-                if (left !== null && l.qty >= left) return ui.toast(left === 1 ? 'נשאר רק אחד' : `נשארו רק ${left}`)
+                if (left !== null && l.qty >= left) return ui.toast(LIMITED)
                 cart.setQty(l.key, l.qty + 1)
               }}
             />

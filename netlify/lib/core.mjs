@@ -399,7 +399,7 @@ async function createOrder(req, ctx) {
     const r = await adjustStock(pid, -n)
     if (!r.ok) {
       for (const [tid, tn] of taken) await adjustStock(tid, tn, { allowShort: true })
-      if (r.error === 'short') return fail(409, r.left > 0 ? `מ"${r.name}" נשארו רק ${r.left}. מעדכנים את הכמות ושולחים שוב.` : `"${r.name}" אזל בינתיים`)
+      if (r.error === 'short') return fail(409, r.left > 0 ? `המלאי של "${r.name}" מוגבל. מעדכנים כמות ושולחים שוב.` : `"${r.name}" אזל בינתיים`)
       return fail(503, 'עומס רגעי. נסו שוב בעוד רגע')
     }
     taken.push([pid, n])

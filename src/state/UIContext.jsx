@@ -9,7 +9,8 @@ export function UIProvider({ children }) {
 
   const toast = useCallback((text) => {
     const id = uid('t_')
-    setToasts((t) => [...t.slice(-1), { id, text }])
+    // אותה הודעה פעמיים ברצף לא נערמת: מחליפים את הישנה
+    setToasts((t) => [...t.filter((x) => x.text !== text).slice(-1), { id, text }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600)
   }, [])
   const openSheet = useCallback((name, payload = null) => setSheet({ name, payload }), [])

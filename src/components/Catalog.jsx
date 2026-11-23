@@ -10,7 +10,7 @@ import { INLINE_VIDEO_PROPS, guardVideo, useVideoAllowed } from '../lib/videoSaf
 import { activeDeals, bundleFor, bundleLabel, saleFor } from '../lib/pricing.js'
 import { dealText, endsText } from '../lib/dealText.js'
 import { CATEGORY_LOOK, TONES } from '../data/catalog.js'
-import { STOCK } from '../lib/shop.js'
+import { LIMITED, STOCK } from '../lib/shop.js'
 import { ils } from '../lib/utils.js'
 import { navigate } from '../lib/router.js'
 
@@ -129,7 +129,8 @@ function ProductCardBase({ product: p, canBuy = true, deals }) {
   const qty = cart.qtyOf(p.id)
   const left = Number.isInteger(p.qty) ? p.qty : null
   const add = () => {
-    if (left !== null && qty >= left) return ui.toast(left === 1 ? 'נשאר רק אחד' : `נשארו רק ${left}`)
+    // הקונים לא רואים כמה נשאר: פשוט אי אפשר להוסיף מעבר למה שיש
+    if (left !== null && qty >= left) return ui.toast(LIMITED)
     return p.comboSlots ? ui.openSheet('combo', p.id) : cart.addProduct(p)
   }
 
@@ -146,10 +147,8 @@ function ProductCardBase({ product: p, canBuy = true, deals }) {
         {(sale || bundle) && (
           <span className="absolute left-2 top-2 rounded-full bg-[#FFD43B] px-2 py-0.5 text-[12px] font-extrabold text-ink">{sale ? 'מבצע' : bundleLabel(bundle, Number(p.price))}</span>
         )}
-        {!out && (left !== null ? left <= 5 : p.stock === 'low') && (
-          <span className="absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink">
-            {left !== null ? (left === 1 ? 'נשאר אחרון' : `נשארו ${left}`) : STOCK.low.label}
-          </span>
+        {!out && left === null && p.stock === 'low' && (
+          <span className="absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink">{STOCK.low.label}</span>
         )}
         {!out && canBuy && (
           <div className="absolute bottom-2 left-2">

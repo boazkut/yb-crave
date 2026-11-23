@@ -62,3 +62,6 @@ export const waLink = (number, text = '') =>
   `https://wa.me/${String(number || '').replace(/\D/g, '')}${text ? `?text=${encodeURIComponent(text)}` : ''}`
 
 export const orderTotal = (lines) => lines.reduce((s, l) => s + l.unitPrice * l.qty, 0)
+
+// מה שהקונה רואה כשמנסה להוסיף מעבר למלאי (בלי לגלות כמה נשאר)
+export const LIMITED = 'המלאי מוגבל, אי אפשר להוסיף עוד מזה'
