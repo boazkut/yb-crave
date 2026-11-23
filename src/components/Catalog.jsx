@@ -130,10 +130,10 @@ function ProductCardBase({ product: p, canBuy = true }) {
       <div className="relative aspect-square overflow-hidden rounded-2xl bg-tile">
         <ProductImage product={p} dim={out} className="absolute inset-0" />
         {out && (
-          // פס אלכסוני אדום עמום: מסמן שאזל בלי לצעוק
-          <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            <line x1="14" y1="86" x2="86" y2="14" stroke="#B5473A" strokeOpacity="0.8" strokeWidth="3" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-          </svg>
+          // סרט אלכסוני אדום (עמום, בלי זוהר) עם הכיתוב בתוכו
+          <div className="pointer-events-none absolute left-1/2 top-1/2 w-[160%] -translate-x-1/2 -translate-y-1/2 -rotate-[32deg] bg-[#B5473A] py-1.5 text-center text-[14px] font-extrabold tracking-wide text-white">
+            אזל מהמלאי
+          </div>
         )}
         {p.stock === 'low' && (
           <span className="absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink">{STOCK.low.label}</span>
@@ -152,11 +152,7 @@ function ProductCardBase({ product: p, canBuy = true }) {
       </div>
       <div className="flex flex-1 flex-col px-1 pb-1 pt-2">
         <h3 className={`line-clamp-2 text-[15px] font-medium leading-snug ${out ? 'text-muted' : ''}`}>{p.name}</h3>
-        {out ? (
-          <p className="mt-0.5 text-[13px] font-semibold text-[#B5473A]">אזל מהמלאי</p>
-        ) : (
-          p.note && <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-muted">{p.note}</p>
-        )}
+        {!out && p.note && <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-muted">{p.note}</p>}
         <p className={`mt-auto pt-1.5 text-[15px] font-bold ${out ? 'text-[#A3A3A3] line-through' : ''}`}>{ils(p.price)}</p>
       </div>
     </article>
