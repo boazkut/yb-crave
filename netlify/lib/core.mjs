@@ -23,8 +23,11 @@ import { DEFAULT_SETTINGS, withSettingsDefaults } from '../../src/services/defau
 
 const env = (k) => globalThis.Netlify?.env?.get?.(k) ?? process.env[k]
 const json = (data, status = 200, headers = {}) =>
-  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } })
-const fail = (status, error) => json({ error }, status)
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...headers },
+  })
+const fail = (status, error, extra = {}) => json({ error, ...extra }, status)
 
 // ---------- סודות שהשרת מייצר לעצמו ----------
 let secretsCache = null
@@ -66,11 +69,51 @@ async function readAdmin(req) {
   }
   if (!p.exp || p.exp < Date.now()) return null
   const admin = await db().get(`admins/${p.sub}`, { type: 'json' })
-  return admin ? { id: admin.id, name: admin.name, role: admin.role } : null
+  if (!admin) return null
+  // אחרי החלפת קוד כל הכניסות הישנות מתבטלות
+  if ((p.v || 0) !== (admin.v || 0)) return null
+  return { id: admin.id, name: admin.name, role: admin.role, mustChangePin: !admin.pinV2, v: admin.v || 0 }
 }
 
 // ---------- מנהלים ----------
 const hashPin = (pin, salt) => crypto.scryptSync(String(pin), salt, 32).toString('hex')
+const samePin = (pin, a) => {
+  const h = hashPin(pin, a.salt)
+  return h.length === a.hash.length && crypto.timingSafeEqual(Buffer.from(h), Buffer.from(a.hash))
+}
+/** קוד חזק: 6–8 ספרות, לא הקוד ההתחלתי, לא ספרה אחת חוזרת ולא רצף */
+function pinProblem(pin) {
+  const s = String(pin || '')
+  if (!/^\d{6,8}$/.test(s)) return 'הקוד צריך להיות 6 עד 8 ספרות'
+  if (/^(\d)\1+$/.test(s)) return 'קוד עם אותה ספרה שוב ושוב קל מדי לניחוש'
+  if ('01234567890123456789'.includes(s) || '98765432109876543210'.includes(s)) return 'קוד של ספרות ברצף קל מדי לניחוש'
+  if (/^(\d\d)\1+$/.test(s) || /^(\d\d\d)\1$/.test(s) || s.includes(env('ADMIN_PIN') || '2580')) return 'בחרו קוד פחות צפוי'
+  return null
+}
+
+// הגנה מניחוש קודים: 5 טעויות מאותה כתובת = נעילה ל-15 דקות; 40 טעויות בכלל ב-10 דקות = נעילה כללית ל-10 דקות
+const LOCK = { ipMax: 5, ipWindow: 15 * 60_000, ipLock: 15 * 60_000, allMax: 40, allWindow: 10 * 60_000, allLock: 10 * 60_000 }
+async function lockState(ipKey) {
+  const store = db()
+  const [ip, all] = await Promise.all([store.get(ipKey, { type: 'json' }), store.get('auth/all', { type: 'json' })])
+  const now = Date.now()
+  const until = Math.max(ip?.until || 0, all?.until || 0)
+  return { ip, all, locked: until > now, minutes: Math.ceil((until - now) / 60_000) }
+}
+async function recordFail(ipKey, st) {
+  const store = db()
+  const now = Date.now()
+  const bumpRec = (rec, max, windowMs, lockMs) => {
+    const fresh = !rec || now - rec.first > windowMs
+    const n = fresh ? 1 : rec.n + 1
+    return { n, first: fresh ? now : rec.first, until: n >= max ? now + lockMs : rec?.until || 0 }
+  }
+  await Promise.all([
+    store.setJSON(ipKey, bumpRec(st.ip, LOCK.ipMax, LOCK.ipWindow, LOCK.ipLock)),
+    store.setJSON('auth/all', bumpRec(st.all, LOCK.allMax, LOCK.allWindow, LOCK.allLock)),
+  ])
+}
+
 async function listAdmins() {
   const store = db()
   const { blobs } = await store.list({ prefix: 'admins/' })
@@ -87,18 +130,78 @@ async function ensureOwner() {
 }
 const publicAdmin = (a) => ({ id: a.id, name: a.name, role: a.role, addedAt: a.addedAt || 0 })
 
-export async function login(req) {
+export async function login(req, ctx) {
   if (req.method !== 'POST') return fail(405, 'method')
+  const ip = ctx?.ip || req.headers.get('x-nf-client-connection-ip') || 'unknown'
+  const { authSecret } = await secrets()
+  const ipKey = `auth/ip/${crypto.createHmac('sha256', authSecret).update(ip).digest('hex').slice(0, 24)}`
+  const st = await lockState(ipKey)
+  if (st.locked) return fail(429, `יותר מדי ניסיונות. נסו שוב בעוד ${st.minutes} דקות`)
   const { pin } = await req.json().catch(() => ({}))
-  if (!pin || String(pin).length < 4) return fail(400, 'קוד שגוי')
   const admins = await ensureOwner()
-  const match = admins.find((a) => {
-    const h = hashPin(pin, a.salt)
-    return h.length === a.hash.length && crypto.timingSafeEqual(Buffer.from(h), Buffer.from(a.hash))
-  })
-  if (!match) return fail(401, 'קוד שגוי')
-  const token = await signToken({ sub: match.id, exp: Date.now() + 1000 * 60 * 60 * 24 * 60 })
-  return json({ token, admin: publicAdmin(match) })
+  const match = /^\d{4,8}$/.test(String(pin || '')) ? admins.find((a) => samePin(pin, a)) : null
+  if (!match) {
+    await recordFail(ipKey, st)
+    return fail(401, 'קוד שגוי')
+  }
+  await db().delete(ipKey)
+  const token = await signToken({ sub: match.id, v: match.v || 0, exp: Date.now() + 1000 * 60 * 60 * 24 * 60 })
+  return json({ token, admin: { ...publicAdmin(match), mustChangePin: !match.pinV2 } })
+}
+
+// ---------- בדיקת קלט ----------
+const SAFE_IMAGE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/
+const ORDER_STATUSES = ['awaiting_payment', 'preparing', 'ready', 'on_the_way', 'delivered', 'rejected', 'cancelled']
+const str = (v, n) => String(v ?? '').trim().slice(0, n)
+const SAFE_URL = /^(\/[\w\-./]*|https:\/\/[^\s"'<>]{1,500})$/
+const COLOR = /^#[0-9a-fA-F]{3,8}$/
+
+function cleanProduct(p, cur, id) {
+  const out = { ...cur, id }
+  if ('name' in p) out.name = str(p.name, 80)
+  if ('note' in p) out.note = str(p.note, 160)
+  if ('category' in p) out.category = str(p.category, 40)
+  if ('price' in p) {
+    const n = Number(p.price)
+    if (Number.isFinite(n) && n >= 0 && n <= 1000) out.price = n
+  }
+  if ('stock' in p && ['in', 'low', 'out'].includes(p.stock)) out.stock = p.stock
+  if ('sort' in p && Number.isFinite(Number(p.sort))) out.sort = Number(p.sort)
+  if ('bagEligible' in p) out.bagEligible = Boolean(p.bagEligible)
+  if ('imageUrl' in p) out.imageUrl = SAFE_URL.test(String(p.imageUrl || '')) ? String(p.imageUrl) : ''
+  if ('comboSlots' in p) out.comboSlots = Array.isArray(p.comboSlots) ? JSON.parse(JSON.stringify(p.comboSlots.slice(0, 6))) : null
+  if ('art' in p && p.art && typeof p.art === 'object') {
+    out.art = {
+      shape: str(p.art.shape, 20),
+      c1: COLOR.test(p.art.c1) ? p.art.c1 : '#999999',
+      c2: COLOR.test(p.art.c2) ? p.art.c2 : '#EEEEEE',
+      label: str(p.art.label, 20),
+      glyph: str(p.art.glyph, 4),
+    }
+  }
+  if (!out.name) out.name = 'מוצר'
+  if (!Number.isFinite(out.price)) out.price = 0
+  return out
+}
+
+function cleanSettings(p) {
+  const out = {}
+  if ('storeOpen' in p) out.storeOpen = Boolean(p.storeOpen)
+  for (const k of ['transferPhone', 'whatsappNumber']) if (k in p) out[k] = str(p[k], 20)
+  for (const k of ['payboxLink', 'bitLink']) if (k in p) out[k] = p[k] === '' || SAFE_URL.test(String(p[k])) ? String(p[k] || '') : ''
+  if (Array.isArray(p.supportPhones)) out.supportPhones = p.supportPhones.slice(0, 5).map((x) => str(x, 20)).filter(Boolean)
+  if (Array.isArray(p.categories)) {
+    out.categories = p.categories.slice(0, 30).map((c) => ({
+      id: str(c.id, 40).replace(/[^\w-]/g, '') || crypto.randomBytes(3).toString('hex'),
+      name: str(c.name, 40),
+      ...(c.desc ? { desc: str(c.desc, 120) } : {}),
+      ...(c.hidden ? { hidden: true } : {}),
+    }))
+  }
+  if (Array.isArray(p.costLog)) {
+    out.costLog = p.costLog.slice(-500).map((x) => ({ id: str(x.id, 40), amount: Number(x.amount) || 0, note: str(x.note, 80), at: Number(x.at) || Date.now() }))
+  }
+  return out
 }
 
 // ---------- קטלוג והגדרות ----------
@@ -202,7 +305,7 @@ async function createOrder(req, ctx) {
   if (!Array.isArray(o.lines) || !o.lines.length || o.lines.length > 60) return fail(400, 'ההזמנה ריקה')
   const method = o.payment?.method
   if (!['paybox', 'bit', 'cash'].includes(method)) return fail(400, 'אמצעי תשלום לא תקין')
-  const proof = typeof body.proof === 'string' && body.proof.startsWith('data:image/') ? body.proof : null
+  const proof = typeof body.proof === 'string' && SAFE_IMAGE.test(body.proof) ? body.proof : null
   if (method === 'paybox' && !proof) return fail(400, 'צריך לצרף צילום של אישור התשלום')
   if (proof && proof.length > 900_000) return fail(413, 'התמונה גדולה מדי')
 
@@ -330,10 +433,13 @@ export async function handle(req, ctx) {
       const data = await db().get(`pimg/${b}`)
       if (!data) return fail(404, 'אין תמונה')
       const [head, payload] = data.split(',')
-      const type = head.slice(5, head.indexOf(';')) || 'image/webp'
+      const type = head.slice(5, head.indexOf(';'))
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(type)) return fail(404, 'אין תמונה')
       return new Response(Buffer.from(payload, 'base64'), {
         headers: {
           'content-type': type,
+          'x-content-type-options': 'nosniff',
+          'content-security-policy': "default-src 'none'; img-src 'self'; sandbox",
           'cache-control': 'public, max-age=31536000, immutable',
           'netlify-cdn-cache-control': 'public, durable, max-age=31536000, immutable',
         },
@@ -351,6 +457,10 @@ export async function handle(req, ctx) {
       if (!admin) return fail(401, 'צריך להתחבר מחדש')
       const store = db()
       const isOwner = admin.role === 'owner'
+      // קוד ישן/חלש: קודם מחליפים קוד, ורק אחר כך אפשר לעשות משהו
+      if (admin.mustChangePin && !(b === 'me' && ((!c && m === 'GET') || (c === 'pin' && m === 'POST')))) {
+        return fail(403, 'צריך לבחור קוד אישי חדש', { code: 'WEAK_PIN' })
+      }
 
       if (b === 'me' && m === 'GET') return json({ admin })
       if (b === 'catalog' && m === 'GET') {
@@ -361,10 +471,14 @@ export async function handle(req, ctx) {
       if (b === 'orders' && c && !d && m === 'PATCH') {
         const o = await store.get(`orders/${c}`, { type: 'json' })
         if (!o) return fail(404, 'לא נמצא')
-        const patch = await req.json()
-        const allowed = ['status', 'paid', 'rejectReason']
+        const patch = (await req.json().catch(() => null)) || {}
         const next = { ...o, statusAt: Date.now() }
-        for (const k of allowed) if (k in patch) next[k] = patch[k]
+        if ('status' in patch) {
+          if (!ORDER_STATUSES.includes(patch.status)) return fail(400, 'סטטוס לא מוכר')
+          next.status = patch.status
+        }
+        if ('paid' in patch) next.paid = Boolean(patch.paid)
+        if ('rejectReason' in patch) next.rejectReason = String(patch.rejectReason || '').slice(0, 200)
         await store.setJSON(`orders/${c}`, next)
         await bump(ctx, 'o')
         if (patch.status && patch.status !== o.status && CUSTOMER_PUSH[patch.status]) {
@@ -393,9 +507,10 @@ export async function handle(req, ctx) {
         return json({ count: old.length })
       }
       if (b === 'products' && c && !d && m === 'PUT') {
-        const p = await req.json()
+        if (!/^[\w-]{1,80}$/.test(c)) return fail(400, 'מזהה לא תקין')
+        const p = (await req.json().catch(() => null)) || {}
         const cur = (await store.get(`products/${c}`, { type: 'json' })) || {}
-        const next = { ...cur, ...p, id: c }
+        const next = cleanProduct(p, cur, c)
         await store.setJSON(`products/${c}`, next)
         await bump(ctx, 'c')
         return json({ product: next })
@@ -436,7 +551,7 @@ export async function handle(req, ctx) {
         const cur = await store.get(`products/${c}`, { type: 'json' })
         if (!cur) return fail(404, 'לא נמצא')
         if (dataUrl) {
-          if (!String(dataUrl).startsWith('data:image/') || dataUrl.length > 400_000) return fail(400, 'תמונה לא תקינה')
+          if (!SAFE_IMAGE.test(String(dataUrl)) || dataUrl.length > 400_000) return fail(400, 'תמונה לא תקינה')
           await store.set(`pimg/${c}`, dataUrl)
         } else await store.delete(`pimg/${c}`)
         const next = { ...cur, imageV: dataUrl ? Date.now() : 0 }
@@ -450,7 +565,7 @@ export async function handle(req, ctx) {
         return json({ ok: true })
       }
       if (b === 'settings' && m === 'PATCH') {
-        const patch = await req.json()
+        const patch = cleanSettings((await req.json().catch(() => null)) || {})
         const next = { ...(await getSettings()), ...patch }
         await store.setJSON('meta/settings', next)
         await bump(ctx, 'c')
@@ -459,13 +574,15 @@ export async function handle(req, ctx) {
       if (b === 'admins' && !c && m === 'GET') return json({ admins: (await listAdmins()).map(publicAdmin) })
       if (b === 'admins' && !c && m === 'POST') {
         if (!isOwner) return fail(403, 'רק מנהל ראשי יכול להוסיף מנהלים')
-        const { name, pin, role } = await req.json()
-        if (!String(name || '').trim() || !/^\d{4,8}$/.test(String(pin || ''))) return fail(400, 'צריך שם וקוד של 4–8 ספרות')
+        const { name, pin, role } = (await req.json().catch(() => null)) || {}
+        if (!String(name || '').trim()) return fail(400, 'צריך שם')
+        const problem = pinProblem(pin)
+        if (problem) return fail(400, problem)
         const admins = await listAdmins()
-        if (admins.some((x) => hashPin(pin, x.salt) === x.hash)) return fail(409, 'הקוד הזה כבר תפוס. בחרו קוד אחר.')
+        if (admins.some((x) => samePin(pin, x))) return fail(409, 'הקוד הזה כבר תפוס. בחרו קוד אחר.')
         const id = crypto.randomBytes(6).toString('hex')
         const salt = crypto.randomBytes(16).toString('hex')
-        const rec = { id, name: String(name).trim().slice(0, 40), role: role === 'owner' ? 'owner' : 'admin', salt, hash: hashPin(pin, salt), addedAt: Date.now() }
+        const rec = { id, name: String(name).trim().slice(0, 40), role: role === 'owner' ? 'owner' : 'admin', salt, hash: hashPin(pin, salt), addedAt: Date.now(), v: 0, pinV2: true }
         await store.setJSON(`admins/${id}`, rec)
         return json({ admin: publicAdmin(rec) })
       }
@@ -476,14 +593,19 @@ export async function handle(req, ctx) {
         return json({ ok: true })
       }
       if (b === 'me' && c === 'pin' && m === 'POST') {
-        const { pin } = await req.json()
-        if (!/^\d{4,8}$/.test(String(pin || ''))) return fail(400, 'קוד של 4–8 ספרות')
+        const { pin } = (await req.json().catch(() => null)) || {}
+        const problem = pinProblem(pin)
+        if (problem) return fail(400, problem)
         const admins = await listAdmins()
-        if (admins.some((x) => x.id !== admin.id && hashPin(pin, x.salt) === x.hash)) return fail(409, 'הקוד הזה כבר תפוס')
         const cur = admins.find((x) => x.id === admin.id)
+        if (samePin(pin, cur)) return fail(400, 'זה הקוד הנוכחי. בחרו קוד חדש')
+        if (admins.some((x) => x.id !== admin.id && samePin(pin, x))) return fail(409, 'הקוד הזה כבר תפוס')
         const salt = crypto.randomBytes(16).toString('hex')
-        await store.setJSON(`admins/${admin.id}`, { ...cur, salt, hash: hashPin(pin, salt) })
-        return json({ ok: true })
+        // גרסה חדשה: כל הכניסות הקודמות (בטלפונים אחרים) מתבטלות
+        const rec = { ...cur, salt, hash: hashPin(pin, salt), v: (cur.v || 0) + 1, pinV2: true }
+        await store.setJSON(`admins/${admin.id}`, rec)
+        const token = await signToken({ sub: rec.id, v: rec.v, exp: Date.now() + 1000 * 60 * 60 * 24 * 60 })
+        return json({ ok: true, token, admin: { ...publicAdmin(rec), mustChangePin: false } })
       }
       if (b === 'push' && m === 'POST') {
         const { subscription } = await req.json()

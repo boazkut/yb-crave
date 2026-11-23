@@ -171,19 +171,19 @@ function MyCode() {
           type="password"
           inputMode="numeric"
           className="field py-2.5 tracking-[0.3em]"
-          placeholder="קוד חדש (4–8 ספרות)"
+          placeholder="קוד חדש (6–8 ספרות)"
           value={pin}
           onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
         />
         <button
           type="button"
           className="btn-secondary shrink-0 px-4 text-sm"
-          disabled={pin.length < 4}
+          disabled={pin.length < 6}
           onClick={async () => {
             try {
               await storage.changeAdminSecret(pin)
               setPin('')
-              toast('הקוד הוחלף')
+              toast('הקוד הוחלף. בטלפונים אחרים צריך להיכנס מחדש')
             } catch (e) {
               toast(e.message || 'ההחלפה נכשלה')
             }

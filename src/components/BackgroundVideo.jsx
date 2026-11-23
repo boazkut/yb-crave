@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { INLINE_VIDEO_PROPS, guardVideo, useVideoAllowed } from '../lib/videoSafe.js'
 
 /**
  * רקע וידאו לכל האפליקציה.
@@ -16,15 +17,11 @@ const ORDER = ['drinks', 'candy', 'salty', 'sweets']
 const EVERY_MS = 4200 // חיתוך אוטומטי
 const SCROLL_STEP = 380 // חיתוך בגלילה
 
-const lowPower = () =>
-  typeof window !== 'undefined' &&
-  (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || navigator.connection?.saveData === true)
-
 export function BackgroundVideo({ base = 'drinks', rotate = false }) {
   const startIdx = Math.max(0, ORDER.indexOf(base))
   const [idx, setIdx] = useState(startIdx)
   const refs = useRef({})
-  const still = useRef(lowPower()).current
+  const still = !useVideoAllowed()
   const lastCut = useRef(performance.now())
   const active = ORDER[idx]
   const next = rotate ? ORDER[(idx + 1) % ORDER.length] : active
@@ -115,17 +112,18 @@ export function BackgroundVideo({ base = 'drinks', rotate = false }) {
         ) : (
           <video
             key={key}
-            ref={(el) => (refs.current[key] = el)}
+            ref={(el) => {
+              refs.current[key] = el
+              guardVideo(el)
+            }}
             className="absolute inset-0 h-full w-full object-cover"
             style={{ ...style, transform: 'scale(1.06)' }}
             src={CLIPS[key].src}
             poster={CLIPS[key].poster}
-            muted
             loop
-            playsInline
             autoPlay={on}
             preload={on || key === next ? 'auto' : 'metadata'}
-            disablePictureInPicture
+            {...INLINE_VIDEO_PROPS}
           />
         )
       })}

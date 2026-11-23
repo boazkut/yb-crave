@@ -27,7 +27,7 @@ export function AdminsTab({ auth }) {
   const add = async (e) => {
     e.preventDefault()
     if (!name.trim()) return setErr('צריך שם')
-    if (pinMode && !/^\d{4,8}$/.test(pin)) return setErr('קוד אישי של 4–8 ספרות')
+    if (pinMode && !/^\d{6,8}$/.test(pin)) return setErr('קוד אישי של 6–8 ספרות')
     if (!pinMode && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setErr('האימייל לא תקין')
     setErr('')
     setBusy(true)
@@ -117,7 +117,7 @@ export function AdminsTab({ auth }) {
             {pinMode ? (
               <div>
                 <label className="label" htmlFor="a-pin">
-                  קוד כניסה אישי (4–8 ספרות)
+                  קוד כניסה אישי (6–8 ספרות)
                 </label>
                 <input id="a-pin" inputMode="numeric" className="field tracking-[0.3em]" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} />
               </div>

@@ -6,6 +6,7 @@ import { Stepper } from './Overlays.jsx'
 import { useCart } from '../state/CartContext.jsx'
 import { useUI } from '../state/UIContext.jsx'
 import { useData } from '../state/DataContext.jsx'
+import { INLINE_VIDEO_PROPS, guardVideo, useVideoAllowed } from '../lib/videoSafe.js'
 import { CATEGORY_LOOK, TONES } from '../data/catalog.js'
 import { STOCK } from '../lib/shop.js'
 import { ils } from '../lib/utils.js'
@@ -27,6 +28,7 @@ const priceRange = (items) => {
 /** כרטיס קטגוריה בדף הבית: תמונה, שם, תיאור, תגית מחירים וחץ */
 export function CategoryCard({ category, index, products }) {
   const look = lookOf(category, index)
+  const videoOk = useVideoAllowed()
   const sample = products.find((p) => p.imageV || p.imageUrl) || products[0]
   return (
     <button
@@ -35,18 +37,16 @@ export function CategoryCard({ category, index, products }) {
       className="flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right transition-transform active:scale-[0.985]"
     >
       <div className="h-[86px] w-[112px] shrink-0 overflow-hidden rounded-2xl bg-tile">
-        {look.clip ? (
+        {look.clip && videoOk ? (
           <video
+            ref={guardVideo}
             src={look.clip}
             poster={look.image}
-            className="h-full w-full object-cover"
-            muted
+            className="pointer-events-none h-full w-full object-cover"
             loop
             autoPlay
-            playsInline
             preload="metadata"
-            disablePictureInPicture
-            aria-hidden="true"
+            {...INLINE_VIDEO_PROPS}
           />
         ) : look.image ? (
           <img src={look.image} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />

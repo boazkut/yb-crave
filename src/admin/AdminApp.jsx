@@ -267,6 +267,49 @@ function ShellInner({ auth }) {
   )
 }
 
+/** חובה לבחור קוד אישי חזק לפני שנכנסים (הקוד ההתחלתי פורסם, וקודים של 4 ספרות קל לנחש) */
+function ForceNewPin() {
+  const [pin, setPin] = useState('')
+  const [again, setAgain] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async (e) => {
+    e.preventDefault()
+    setErr('')
+    if (pin !== again) return setErr('שני הקודים לא זהים')
+    setBusy(true)
+    try {
+      await storage.changeAdminSecret(pin)
+    } catch (ex) {
+      setErr(ex.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const digits = (v) => v.replace(/\D/g, '').slice(0, 8)
+  return (
+    <AuthFrame title="בוחרים קוד אישי חדש" sub="לשמירה על החנות: קוד של 6 עד 8 ספרות שרק אתם יודעים. בלי רצפים ובלי אותה ספרה שוב ושוב.">
+      <form onSubmit={submit} className="space-y-3">
+        <label className="label" htmlFor="np1">
+          קוד חדש
+        </label>
+        <input id="np1" type="password" inputMode="numeric" autoComplete="new-password" className="field text-center text-xl tracking-[0.4em]" value={pin} onChange={(e) => setPin(digits(e.target.value))} />
+        <label className="label" htmlFor="np2">
+          שוב, לאישור
+        </label>
+        <input id="np2" type="password" inputMode="numeric" autoComplete="new-password" className="field text-center text-xl tracking-[0.4em]" value={again} onChange={(e) => setAgain(digits(e.target.value))} />
+        {err && <p className="error">{err}</p>}
+        <button type="submit" className="btn-primary w-full" disabled={busy || pin.length < 6 || again.length < 6}>
+          {busy ? 'שומרים...' : 'שמירה וכניסה'}
+        </button>
+        <button type="button" className="btn-ghost w-full text-sm" onClick={() => storage.adminSignOut()}>
+          יציאה
+        </button>
+      </form>
+    </AuthFrame>
+  )
+}
+
 export default function AdminApp() {
   const { mode } = useData()
   const [auth, setAuth] = useState(null)
@@ -282,6 +325,7 @@ export default function AdminApp() {
 
   let screen = null
   if (!auth) screen = <div className="grid min-h-dvh place-items-center text-muted">טוענים...</div>
+  else if (auth.status === 'admin' && auth.mustChangePin) screen = <ForceNewPin />
   else if (auth.status === 'admin') screen = <Shell auth={auth} />
   else if (auth.status === 'unverified') screen = <Verify auth={auth} onState={setAuth} />
   else if (auth.status === 'notAdmin') screen = <NoAccess auth={auth} />

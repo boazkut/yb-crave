@@ -24,8 +24,14 @@ export function initStorage() {
       }
     }
     if (!adapter) {
-      const health = await probeCloud()
-      adapter = health ? createCloudAdapter(health) : createLocalAdapter()
+      // באתר האמיתי אף פעם לא עוברים למצב דמו (הזמנות היו נשמרות רק בטלפון ולא מגיעות אליכם).
+      // ברשת חלשה מנסים שוב ונשארים מחוברים לשרת.
+      const live = !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname)
+      const health = await probeCloud({ retries: live ? 2 : 0 })
+      if (health || live) {
+        adapter = createCloudAdapter(health)
+        if (!health) adapter.ensureHealth()
+      } else adapter = createLocalAdapter()
     }
     await adapter.init()
     return adapter

@@ -5,5 +5,5 @@ export default async (req: Request, context: Context) => handle(req, context)
 
 export const config: Config = {
   path: '/api/*',
-  excludedPath: ['/api/admin/login'],
+  excludedPath: ['/api/admin/login', '/api/orders'],
 }
