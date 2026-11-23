@@ -130,11 +130,10 @@ function ProductCardBase({ product: p, canBuy = true }) {
       <div className="relative aspect-square overflow-hidden rounded-2xl bg-tile">
         <ProductImage product={p} dim={out} className="absolute inset-0" />
         {out && (
-          <div className="absolute inset-0 grid place-items-center bg-white/35">
-            <span className="grid h-14 w-14 place-items-center rounded-full bg-danger text-white shadow-[0_4px_14px_rgba(217,45,32,.35)]">
-              <X size={30} strokeWidth={3} />
-            </span>
-          </div>
+          // פס אלכסוני אדום עמום: מסמן שאזל בלי לצעוק
+          <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <line x1="14" y1="86" x2="86" y2="14" stroke="#B5473A" strokeOpacity="0.8" strokeWidth="3" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          </svg>
         )}
         {p.stock === 'low' && (
           <span className="absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink">{STOCK.low.label}</span>
@@ -154,7 +153,7 @@ function ProductCardBase({ product: p, canBuy = true }) {
       <div className="flex flex-1 flex-col px-1 pb-1 pt-2">
         <h3 className={`line-clamp-2 text-[15px] font-medium leading-snug ${out ? 'text-muted' : ''}`}>{p.name}</h3>
         {out ? (
-          <p className="mt-0.5 text-[13px] font-bold text-danger">אזל מהמלאי</p>
+          <p className="mt-0.5 text-[13px] font-semibold text-[#B5473A]">אזל מהמלאי</p>
         ) : (
           p.note && <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-muted">{p.note}</p>
         )}
