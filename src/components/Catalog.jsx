@@ -7,6 +7,8 @@ import { useCart } from '../state/CartContext.jsx'
 import { useUI } from '../state/UIContext.jsx'
 import { useData } from '../state/DataContext.jsx'
 import { INLINE_VIDEO_PROPS, guardVideo, useVideoAllowed } from '../lib/videoSafe.js'
+import { activeDeals, bundleFor, bundleLabel, saleFor } from '../lib/pricing.js'
+import { dealText, endsText } from '../lib/dealText.js'
 import { CATEGORY_LOOK, TONES } from '../data/catalog.js'
 import { STOCK } from '../lib/shop.js'
 import { ils } from '../lib/utils.js'
@@ -118,10 +120,12 @@ export function CategoryHeader({ categories, current, budget, setBudget }) {
   )
 }
 
-function ProductCardBase({ product: p, canBuy = true }) {
+function ProductCardBase({ product: p, canBuy = true, deals }) {
   const cart = useCart()
   const ui = useUI()
   const out = p.stock === 'out'
+  const sale = out ? null : saleFor(p, deals)
+  const bundle = out || sale ? null : bundleFor(p, deals)
   const qty = cart.qtyOf(p.id)
   const add = () => (p.comboSlots ? ui.openSheet('combo', p.id) : cart.addProduct(p))
 
@@ -134,6 +138,9 @@ function ProductCardBase({ product: p, canBuy = true }) {
           <div className="pointer-events-none absolute left-1/2 top-1/2 w-[160%] -translate-x-1/2 -translate-y-1/2 -rotate-[32deg] bg-[#B5473A] py-1.5 text-center text-[14px] font-extrabold tracking-wide text-white">
             אזל מהמלאי
           </div>
+        )}
+        {(sale || bundle) && (
+          <span className="absolute left-2 top-2 rounded-full bg-[#FFD43B] px-2 py-0.5 text-[12px] font-extrabold text-ink">{sale ? 'מבצע' : bundleLabel(bundle, Number(p.price))}</span>
         )}
         {p.stock === 'low' && (
           <span className="absolute right-2 top-2 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink">{STOCK.low.label}</span>
@@ -153,7 +160,14 @@ function ProductCardBase({ product: p, canBuy = true }) {
       <div className="flex flex-1 flex-col px-1 pb-1 pt-2">
         <h3 className={`line-clamp-2 text-[15px] font-medium leading-snug ${out ? 'text-muted' : ''}`}>{p.name}</h3>
         {!out && p.note && <p className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-muted">{p.note}</p>}
-        <p className={`mt-auto pt-1.5 text-[15px] font-bold ${out ? 'text-[#A3A3A3] line-through' : ''}`}>{ils(p.price)}</p>
+        <p className={`mt-auto pt-1.5 text-[15px] font-bold ${out ? 'text-[#A3A3A3] line-through' : ''}`}>
+          <bdi>{ils(sale ? sale.price : p.price)}</bdi>
+          {sale && (
+            <bdi className="mr-2 text-[13px] font-medium text-muted line-through" aria-label={`במקום ${ils(p.price)}`}>
+              {ils(p.price)}
+            </bdi>
+          )}
+        </p>
       </div>
     </article>
   )
@@ -165,9 +179,65 @@ export function ProductGrid({ products }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {products.map((p) => (
-        <ProductCard key={p.id} product={p} canBuy={settings.storeOpen} />
+        <ProductCard key={p.id} product={p} canBuy={settings.storeOpen} deals={settings.deals} />
       ))}
     </div>
+  )
+}
+
+/** מבצעים פעילים בראש דף הבית */
+export function DealsStrip() {
+  const { settings, byId } = useData()
+  const deals = activeDeals(settings.deals).filter((d) => d.productIds.some((id) => byId[id]))
+  if (!deals.length) return null
+  return (
+    <section aria-label="מבצעים">
+      <h2 className="px-1 pb-2 text-[20px] font-extrabold text-white [text-shadow:0_1px_10px_rgba(0,0,0,.35)]">מבצעים</h2>
+      <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {deals.map((d) => {
+          const items = d.productIds.map((id) => byId[id]).filter(Boolean)
+          return (
+            <button
+              key={d.id}
+              type="button"
+              onClick={() => navigate(`/deal/${encodeURIComponent(d.id)}`)}
+              className="w-[250px] shrink-0 snap-start rounded-[22px] bg-[#FFD43B] p-4 text-right text-ink active:scale-[0.985]"
+            >
+              <p className="text-[24px] font-extrabold leading-tight">{d.title}</p>
+              <p className="mt-1 line-clamp-2 text-[13px] leading-snug text-ink/75">{items.slice(0, 3).map((p) => p.name).join(', ')}{items.length > 3 ? ` ועוד ${items.length - 3}` : ''}</p>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="flex -space-x-2 space-x-reverse">
+                  {items.slice(0, 3).map((p) => (
+                    <ProductImage key={p.id} product={p} className="h-9 w-9 rounded-full bg-white ring-2 ring-[#FFD43B]" artClass="h-7 w-6" />
+                  ))}
+                </span>
+                {d.endsAt ? <span className="text-[12px] font-semibold">{endsText(d.endsAt)}</span> : <ChevronLeft size={18} />}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+/** כותרת לדף של מבצע */
+export function DealHeader({ deal }) {
+  return (
+    <header className="sticky top-0 z-30 bg-white/95 px-4 pb-4 pt-3 backdrop-blur">
+      <div className="mx-auto flex max-w-5xl items-center gap-3">
+        <button type="button" onClick={() => navigate('/')} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-tile" aria-label="חזרה">
+          <ChevronRight size={20} />
+        </button>
+        <div className="min-w-0">
+          <h1 className="truncate text-[22px] font-extrabold leading-tight">מבצע {deal.title}</h1>
+          <p className="text-[13px] text-muted">
+            {dealText(deal)}
+            {deal.endsAt ? ` · ${endsText(deal.endsAt)}` : ''}
+          </p>
+        </div>
+      </div>
+    </header>
   )
 }
 
@@ -188,17 +258,3 @@ export function ClosedNotice({ className = '' }) {
   )
 }
 
-export function BagBuilderCard({ onOpen }) {
-  return (
-    <button type="button" onClick={onOpen} className="mb-3 flex w-full items-center gap-3.5 rounded-[22px] bg-white p-3 text-right">
-      <div className="h-[72px] w-[92px] shrink-0 overflow-hidden rounded-2xl bg-tile">
-        <img src="/media/cat-candy.jpg" alt="" className="h-full w-full object-cover" loading="lazy" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[17px] font-extrabold">הרכב שקית חמצוצים</p>
-        <p className="mt-0.5 text-[13px] text-muted">בוחרים גודל (5 או 10 ₪) ואת הסוגים לערבוב</p>
-      </div>
-      <ChevronLeft size={20} className="shrink-0 text-[#9A9A9A]" />
-    </button>
-  )
-}

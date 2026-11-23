@@ -8,11 +8,6 @@ import { useUI } from '../state/UIContext.jsx'
 import { isAvailable } from '../lib/shop.js'
 import { ils } from '../lib/utils.js'
 
-const BAG_SIZES = [
-  { price: 5, max: 3, name: 'שקית קטנה' },
-  { price: 10, max: 5, name: 'שקית גדולה' },
-]
-
 function PickTile({ product, selected, onClick }) {
   return (
     <button
@@ -31,84 +26,6 @@ function PickTile({ product, selected, onClick }) {
       <ProductImage product={product} className="aspect-square w-full rounded-xl bg-tile" />
       <span className="mt-1.5 line-clamp-2 text-[12px] font-medium leading-tight">{product.name}</span>
     </button>
-  )
-}
-
-export function BagBuilder({ onClose }) {
-  const { products } = useData()
-  const cart = useCart()
-  const ui = useUI()
-  const [size, setSize] = useState(BAG_SIZES[0])
-  const [picked, setPicked] = useState([])
-  const options = useMemo(() => products.filter((p) => p.bagEligible && isAvailable(p)), [products])
-
-  const toggle = (id) =>
-    setPicked((ps) => {
-      if (ps.includes(id)) return ps.filter((x) => x !== id)
-      if (ps.length >= size.max) {
-        ui.toast(`ב${size.name} נכנסים עד ${size.max} סוגים`)
-        return ps
-      }
-      return [...ps, id]
-    })
-
-  const add = () => {
-    cart.addCustom({
-      kind: 'bag',
-      name: `שקית חמצוצים ${size.price} ₪`,
-      unitPrice: size.price,
-      details: picked.map((id) => options.find((p) => p.id === id)?.name).filter(Boolean),
-      art: { shape: 'gummy', c1: '#E5212B', c2: '#7CCB2B', label: `${size.price} ₪` },
-    })
-    ui.toast('השקית נוספה להזמנה')
-    onClose()
-  }
-
-  return (
-    <Sheet
-      title="הרכב שקית חמצוצים"
-      onClose={onClose}
-      footer={
-        <button type="button" className="btn-primary mb-1 w-full" disabled={!picked.length} onClick={add}>
-          {picked.length ? `הוספה להזמנה, ${ils(size.price)}` : 'בחרו לפחות סוג אחד'}
-        </button>
-      }
-    >
-      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="גודל השקית">
-        {BAG_SIZES.map((s) => {
-          const on = s.price === size.price
-          return (
-            <button
-              key={s.price}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              onClick={() => {
-                setSize(s)
-                setPicked((ps) => ps.slice(0, s.max))
-              }}
-              className={`rounded-2xl border p-3 text-right ${on ? 'border-ink ring-1 ring-ink' : 'border-line'}`}
-            >
-              <span className="block text-lg font-bold">{ils(s.price)}</span>
-              <span className="block text-[13px] text-muted">
-                {s.name}, עד {s.max} סוגים
-              </span>
-            </button>
-          )
-        })}
-      </div>
-      <div className="mb-2 mt-5 flex items-baseline justify-between">
-        <h3 className="text-[15px] font-semibold">מה לערבב?</h3>
-        <span className="text-[13px] text-muted">
-          נבחרו {picked.length} מתוך {size.max}
-        </span>
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        {options.map((p) => (
-          <PickTile key={p.id} product={p} selected={picked.includes(p.id)} onClick={() => toggle(p.id)} />
-        ))}
-      </div>
-    </Sheet>
   )
 }
 

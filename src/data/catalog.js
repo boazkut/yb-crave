@@ -12,7 +12,7 @@ export const DEFAULT_CATEGORIES = [
   { id: 'drinks', name: 'פחיות ושתייה', desc: 'פחיות קרות, אנרגיה, מים ושוקו' },
   { id: 'salty', name: 'חטיפים מלוחים', desc: 'במבה, ביסלי, דוריטוס וכל החבר׳ה' },
   { id: 'sweets', name: 'שוקולדים ומתוקים', desc: 'קינדר, קליק, עוגיות וחטיפי שוקולד' },
-  { id: 'sour', name: 'ממתקים וגומי', desc: 'חמצוצים, גומי, סוכריות ושקית שמרכיבים לבד' },
+  { id: 'sour', name: 'ממתקים וגומי', desc: 'חמצוצים, גומי וסוכריות' },
 ]
 
 export const REMOVED_CATEGORIES = ['combos', 'rescue']

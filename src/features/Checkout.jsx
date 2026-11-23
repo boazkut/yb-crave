@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Banknote, Check, Copy, ImagePlus, LoaderCircle, Smartphone, Trash2, Wallet } from 'lucide-react'
+import { Banknote, Check, Copy, ImagePlus, LoaderCircle, Smartphone, Tag, Trash2, Wallet } from 'lucide-react'
 import { Sheet, Stepper } from '../components/Overlays.jsx'
 import { ProductImage } from '../components/ProductImage.jsx'
 import { useCart } from '../state/CartContext.jsx'
@@ -127,12 +127,33 @@ function CartStep({ onNext, onClose }) {
             <div className="min-w-0 flex-1">
               <p className="text-[15px] font-medium leading-tight">{l.name}</p>
               {l.details?.length > 0 && <p className="mt-0.5 text-[12px] leading-snug text-muted">{l.details.join(', ')}</p>}
-              <p className="mt-0.5 text-sm font-semibold">{ils(l.unitPrice * l.qty)}</p>
+              <p className="mt-0.5 text-sm font-semibold">
+                <bdi>{ils(l.unitPrice * l.qty)}</bdi>
+                {l.basePrice > l.unitPrice && <bdi className="mr-2 text-[12px] font-normal text-muted line-through">{ils(l.basePrice * l.qty)}</bdi>}
+              </p>
             </div>
             <Stepper value={l.qty} onDec={() => cart.setQty(l.key, l.qty - 1)} onInc={() => cart.setQty(l.key, l.qty + 1)} />
           </li>
         ))}
       </ul>
+      {cart.discounts.length > 0 && (
+        <ul className="mt-3 space-y-1.5 border-t border-line pt-3">
+          {cart.discounts.map((d) => (
+            <li key={d.dealId} className="flex items-center justify-between text-[15px] font-semibold text-[#15803D]">
+              <span className="flex items-center gap-1.5">
+                <Tag size={15} /> מבצע {d.title}
+                {d.times > 1 && <span className="text-[13px] font-normal">×{d.times}</span>}
+              </span>
+              <span dir="ltr">−{ils(d.amount)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {cart.hints.map((h) => (
+        <p key={h.dealId} className="mt-2 rounded-xl bg-[#E7F6EC] px-3 py-2 text-[14px] text-[#15803D]">
+          עוד {h.need === 1 ? 'מוצר אחד' : `${h.need} מוצרים`} מהמבצע "{h.title}" והמחיר יורד
+        </p>
+      ))}
       <div className="mt-3 flex items-center justify-between border-t border-line pt-4">
         <span className="text-muted">סה&quot;כ</span>
         <span className="text-2xl font-bold">{ils(cart.total)}</span>

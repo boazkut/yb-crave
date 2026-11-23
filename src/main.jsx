@@ -11,7 +11,7 @@ initInstall()
 registerSW()
 
 // כל כניסה מחדש מתחילה מדף הבית (המנהלים נשארים באזור שלהם)
-if (window.location.pathname.startsWith('/c/')) window.history.replaceState({}, '', '/')
+if (/^\/(c|deal)\//.test(window.location.pathname)) window.history.replaceState({}, '', '/')
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

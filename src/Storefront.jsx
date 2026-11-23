@@ -5,11 +5,12 @@ import { useData } from './state/DataContext.jsx'
 import { useUI } from './state/UIContext.jsx'
 import { Logo, StoreStatus } from './components/TopBar.jsx'
 import { BackgroundVideo } from './components/BackgroundVideo.jsx'
-import { BagBuilderCard, CategoryCard, CategoryHeader, ClosedNotice, ProductGrid, lookOf } from './components/Catalog.jsx'
+import { CategoryCard, CategoryHeader, ClosedNotice, DealHeader, DealsStrip, ProductGrid, lookOf } from './components/Catalog.jsx'
+import { activeDeals } from './lib/pricing.js'
 import { Toasts } from './components/Overlays.jsx'
 import { InstallCard } from './components/InstallCard.jsx'
 import { CheckoutSheet } from './features/Checkout.jsx'
-import { BagBuilder, ComboBuilder } from './features/Builders.jsx'
+import { ComboBuilder } from './features/Builders.jsx'
 import { CartBar, OrderStatus, SupportPhones } from './features/OrderStatus.jsx'
 import { navigate } from './lib/router.js'
 import { useSecretAdmin } from './lib/secretAdmin.js'
@@ -108,6 +109,7 @@ function Home({ byCategory }) {
           </section>
           <main className="mx-auto max-w-5xl space-y-3 px-4">
             <ClosedNotice />
+            <DealsStrip />
             {categories.map((c, i) => (
               <CategoryCard key={c.id} category={c} index={i} products={byCategory[c.id] || []} />
             ))}
@@ -127,6 +129,18 @@ function Home({ byCategory }) {
   )
 }
 
+function DealView({ deal, items }) {
+  return (
+    <>
+      <DealHeader deal={deal} />
+      <main className="mx-auto max-w-5xl px-3 pt-4">
+        <ClosedNotice className="mb-3" />
+        <ProductGrid products={items} />
+      </main>
+    </>
+  )
+}
+
 function CategoryView({ category, items }) {
   const { categories, settings } = useData()
   const ui = useUI()
@@ -139,7 +153,6 @@ function CategoryView({ category, items }) {
       <CategoryHeader categories={categories} current={category} budget={budget} setBudget={setBudget} />
       <main className="mx-auto max-w-5xl px-3 pt-4">
         <ClosedNotice className="mb-3" />
-        {category.id === 'sour' && !budget && settings.storeOpen && <BagBuilderCard onOpen={() => ui.openSheet('bag')} />}
         {shown.length ? (
           <ProductGrid products={shown} />
         ) : (
@@ -159,13 +172,16 @@ export function Storefront({ path }) {
   const { products, categories } = useData()
   const ui = useUI()
   useStorefrontChrome()
+  const { settings, byId } = useData()
   const catId = path.startsWith('/c/') ? decodeURIComponent(path.slice(3)) : null
   const index = categories.findIndex((c) => c.id === catId)
   const current = index >= 0 ? categories[index] : null
+  const dealId = path.startsWith('/deal/') ? decodeURIComponent(path.slice(6)) : null
+  const deal = dealId ? activeDeals(settings.deals).find((d) => d.id === dealId) : null
 
   useEffect(() => {
-    if (catId && !current) navigate('/', { replace: true })
-  }, [catId, current])
+    if ((catId && !current) || (dealId && !deal)) navigate('/', { replace: true })
+  }, [catId, current, dealId, deal])
 
   const byCategory = useMemo(() => {
     const m = {}
@@ -179,14 +195,19 @@ export function Storefront({ path }) {
     <>
       <BackgroundVideo base={current ? lookOf(current, index).video || 'drinks' : 'drinks'} rotate={!current} />
       <div className="relative z-10 min-h-dvh pb-44">
-        {current ? <CategoryView category={current} items={byCategory[current.id] || []} /> : <Home byCategory={byCategory} />}
+        {current ? (
+          <CategoryView category={current} items={byCategory[current.id] || []} />
+        ) : deal ? (
+          <DealView deal={deal} items={sortProducts(deal.productIds.map((id) => byId[id]).filter(Boolean))} />
+        ) : (
+          <Home byCategory={byCategory} />
+        )}
       </div>
 
       <CartBar />
       <Toasts />
       <AnimatePresence>
         {sheet?.name === 'checkout' && <CheckoutSheet key="checkout" onClose={ui.closeSheet} />}
-        {sheet?.name === 'bag' && <BagBuilder key="bag" onClose={ui.closeSheet} />}
         {sheet?.name === 'combo' && <ComboBuilder key={`combo-${sheet.payload}`} productId={sheet.payload} onClose={ui.closeSheet} />}
         {sheet?.name === 'status' && <OrderStatus key={`status-${sheet.payload}`} orderId={sheet.payload} onClose={ui.closeSheet} />}
       </AnimatePresence>

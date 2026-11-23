@@ -181,6 +181,13 @@ function OrderCard({ order: o }) {
             {l.details?.length > 0 && <span className="block pr-6 text-[13px] text-muted">{l.details.join(', ')}</span>}
           </li>
         ))}
+        {(o.discounts || []).map((d) => (
+          <li key={d.dealId} className="text-[15px] font-semibold text-[#15803D]">
+            מבצע {d.title}
+            {d.times > 1 ? ` ×${d.times}` : ''}: <span dir="ltr">−{ils(d.amount)}</span>
+          </li>
+        ))}
+        {o.lines.some((l) => l.basePrice > l.unitPrice) && <li className="text-[14px] text-[#15803D]">כולל מחירי מבצע</li>}
         {o.customer.note && <li className="border-t border-line pt-1.5 text-[15px] font-medium">הערה: {o.customer.note}</li>}
         {o.payment?.method === 'cash' && o.payment.changeFor && o.payment.changeFor !== 'בדיוק' && (
           <li className="text-[15px] font-medium">עודף מ-{o.payment.changeFor}</li>

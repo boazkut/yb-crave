@@ -20,6 +20,7 @@ import { purgeCache } from '@netlify/functions'
 import { db } from './store.mjs'
 import { SEED_PRODUCTS, DEFAULT_CATEGORIES, REMOVED_CATEGORIES } from '../../src/data/catalog.js'
 import { DEFAULT_SETTINGS, withSettingsDefaults } from '../../src/services/defaults.js'
+import { priceCart } from '../../src/lib/pricing.js'
 
 const env = (k) => globalThis.Netlify?.env?.get?.(k) ?? process.env[k]
 const json = (data, status = 200, headers = {}) =>
@@ -198,6 +199,23 @@ function cleanSettings(p) {
       ...(c.hidden ? { hidden: true } : {}),
     }))
   }
+  if (Array.isArray(p.deals)) {
+    out.deals = p.deals.slice(0, 40).map((d) => {
+      const type = d.type === 'bundle' ? 'bundle' : 'price'
+      const price = Math.min(1000, Math.max(0, Number(d.price) || 0))
+      return {
+        id: str(d.id, 40).replace(/[^\w-]/g, '') || crypto.randomBytes(4).toString('hex'),
+        title: str(d.title, 40) || 'מבצע',
+        type,
+        productIds: (Array.isArray(d.productIds) ? d.productIds : []).slice(0, 200).map((x) => str(x, 80)).filter((x) => /^[\w-]+$/.test(x)),
+        price,
+        qty: type === 'bundle' ? Math.min(20, Math.max(2, Math.floor(Number(d.qty) || 2))) : 1,
+        active: d.active !== false,
+        endsAt: Number(d.endsAt) > 0 ? Number(d.endsAt) : null,
+        createdAt: Number(d.createdAt) || Date.now(),
+      }
+    })
+  }
   if (Array.isArray(p.costLog)) {
     out.costLog = p.costLog.slice(-500).map((x) => ({ id: str(x.id, 40), amount: Number(x.amount) || 0, note: str(x.note, 80), at: Number(x.at) || Date.now() }))
   }
@@ -279,7 +297,6 @@ const THANKS_PUSH = (o) => ({
 // ---------- הזמנות ----------
 const PHONE_RE = /^0(5\d|7\d)\d{7}$|^0[23489]\d{7}$/
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' })
-const BAG_PRICES = [5, 10]
 
 async function reserveNumber() {
   const store = db()
@@ -311,29 +328,25 @@ async function createOrder(req, ctx) {
 
   // בדיקת מחירים מול הקטלוג בשרת
   const products = Object.fromEntries((await listProducts()).map((p) => [p.id, p]))
-  const lines = []
+  const raw = []
   for (const l of o.lines) {
+    if (l.kind === 'bag') return fail(400, 'שקית בהרכבה כבר לא זמינה. מוחקים אותה מההזמנה ומנסים שוב.')
     const qty = Math.max(1, Math.min(50, Math.floor(Number(l.qty) || 0)))
-    let unitPrice
-    if (l.kind === 'bag') {
-      unitPrice = Number(l.unitPrice)
-      if (!BAG_PRICES.includes(unitPrice)) return fail(400, 'מחיר שקית לא תקין')
-    } else {
-      const p = products[l.productId]
-      if (!p) return fail(409, `המוצר "${l.name}" כבר לא קיים. רעננו את הדף.`)
-      if (p.stock === 'out') return fail(409, `"${p.name}" אזל בינתיים`)
-      unitPrice = Number(p.price)
-    }
-    lines.push({
-      kind: l.kind === 'bag' ? 'bag' : l.kind === 'combo' ? 'combo' : 'product',
-      productId: l.productId || null,
-      name: String(l.kind === 'bag' ? l.name : products[l.productId]?.name || l.name).slice(0, 80),
-      unitPrice,
+    const p = products[l.productId]
+    if (!p) return fail(409, `המוצר "${String(l.name || '').slice(0, 40)}" כבר לא קיים. רעננו את הדף.`)
+    if (p.stock === 'out') return fail(409, `"${p.name}" אזל בינתיים`)
+    raw.push({
+      kind: 'product',
+      productId: p.id,
+      name: String(p.name).slice(0, 80),
       qty,
       details: Array.isArray(l.details) ? l.details.slice(0, 8).map((d) => String(d).slice(0, 60)) : [],
     })
   }
-  const total = lines.reduce((s, l) => s + l.unitPrice * l.qty, 0)
+  // המחיר נקבע כאן, לפי המחירים והמבצעים שבשרת — לא לפי מה שהטלפון שלח
+  const priced = priceCart(raw, products, settings.deals)
+  const lines = priced.lines.map((l) => ({ kind: 'product', productId: l.productId, name: l.name, unitPrice: l.unitPrice, basePrice: l.basePrice, qty: l.qty, details: l.details }))
+  const total = priced.total
 
   const id = `${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}`
   const token = crypto.randomBytes(18).toString('base64url')
@@ -350,6 +363,8 @@ async function createOrder(req, ctx) {
       note: String(c.note || '').trim().slice(0, 200),
     },
     lines,
+    subtotal: priced.subtotal,
+    discounts: priced.discounts,
     total,
     payment: { method, hasProof: Boolean(proof), changeFor: method === 'cash' ? String(o.payment?.changeFor || '').slice(0, 10) : '' },
     status: method === 'cash' ? 'preparing' : 'awaiting_payment',

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { ClipboardList, LoaderCircle, LogOut, Package, Settings, Store, Users } from 'lucide-react'
+import { ClipboardList, LoaderCircle, LogOut, Package, Settings, Store, Users, Percent } from 'lucide-react'
 import { storage } from '../services/storageService.js'
 import { useData } from '../state/DataContext.jsx'
 import { navigate } from '../lib/router.js'
@@ -8,6 +8,7 @@ import { setThemeColor } from '../lib/splash.js'
 import { Logo } from '../components/TopBar.jsx'
 import { AdminToastProvider } from './ui.jsx'
 import { NewOrderBanner, OrdersTab } from './OrdersTab.jsx'
+import { DealsTab } from './DealsTab.jsx'
 import { AdminOrdersProvider, useAdminOrders } from './adminOrders.jsx'
 import { NotifyGate } from './NotifySetup.jsx'
 import { ProductsTab } from './ProductsTab.jsx'
@@ -17,6 +18,7 @@ import { SettingsTab } from './SettingsTab.jsx'
 const TABS = [
   { id: 'orders', label: 'הזמנות', Icon: ClipboardList },
   { id: 'products', label: 'מוצרים', Icon: Package },
+  { id: 'deals', label: 'מבצעים', Icon: Percent },
   { id: 'admins', label: 'מנהלים', Icon: Users },
   { id: 'settings', label: 'הגדרות', Icon: Settings },
 ]
@@ -221,7 +223,7 @@ function ShellInner({ auth }) {
       </header>
 
       <main className="mx-auto max-w-3xl space-y-4 px-4 pt-4">
-        {catalogEmpty && (
+        {catalogEmpty && mode === 'firebase' && (
           <div className="card p-4">
             <p className="font-semibold">המסד בענן עוד ריק</p>
             <p className="mt-1 text-sm text-muted">לחיצה אחת מעלה את כל המוצרים וההגדרות ההתחלתיות.</p>
@@ -232,12 +234,13 @@ function ShellInner({ auth }) {
         )}
         {tab === 'orders' && <OrdersTab />}
         {tab === 'products' && <ProductsTab />}
+        {tab === 'deals' && <DealsTab />}
         {tab === 'admins' && <AdminsTab auth={auth} />}
         {tab === 'settings' && <SettingsTab />}
       </main>
 
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white" aria-label="ניווט ניהול">
-        <div className="mx-auto grid max-w-3xl grid-cols-4 px-2 pt-1.5">
+        <div className="mx-auto grid max-w-3xl grid-cols-5 px-1 pt-1.5">
           {TABS.map(({ id, label, Icon }) => (
             <button
               key={id}
